@@ -369,6 +369,7 @@ function UI.Apply<T>(instance: T, properties: Properties): T
 	assertCondition(typeof(instance) == "Instance", "Apply expects an Instance")
 	assertCondition(typeof(properties) == "table", "properties must be a table")
 	const object: Instance = instance :: any
+	const target: any = object
 	local parent: Instance? = nil
 	local hasParent: boolean = false
 	for propertyName: string, value: any in properties do
@@ -378,7 +379,7 @@ function UI.Apply<T>(instance: T, properties: Properties): T
 			hasParent = true
 		else
 			const success: boolean, reason: any = pcall(function(): ()
-				(object :: any)[propertyName] = value
+				target[propertyName] = value
 			end)
 			assertCondition(success, `cannot set {object.ClassName}.{propertyName}: {tostring(reason)}`, 2)
 		end
@@ -592,14 +593,15 @@ local function bindTransparency(window: Window, instance: Instance): ()
 end
 
 local function setTransparencyBase(window: Window, instance: Instance, propertyName: string, value: number): ()
+	const target: any = instance
 	if instance:IsA("CanvasGroup") and propertyName == "GroupTransparency" then
-		(instance :: any)[propertyName] = value
+		target[propertyName] = value
 		return
 	end
 	const bindings: TransparencyBindings = window._transparencyBindings[instance] or {}
 	bindings[propertyName] = value
 	window._transparencyBindings[instance] = bindings
-	(instance :: any)[propertyName] = composeTransparency(window, value)
+	target[propertyName] = composeTransparency(window, value)
 end
 
 local function applyTransparency(window: Window, transparency: number): ()
