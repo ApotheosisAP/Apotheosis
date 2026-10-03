@@ -16,16 +16,17 @@ export type Palette = {
 }
 export type PalettePreset = {Name: string, Palette: Palette}
 export type PaletteColorInfo = {Name: PaletteColor, Label: string}
+type KeybindCapture = {_keybind: Enum.KeyCode?, SetKeybind: (self: any, keyCode: Enum.KeyCode?) -> ()}
+type TransparencyBindings = {[string]: number}
 export type WindowOptions = {
 	Name: string?,
 	Title: string?,
 	Logo: string?,
-	Parent: Instance?,
 	Size: UDim2?,
 	Position: UDim2?,
 	ToggleKey: Enum.KeyCode?,
 	Palette: {[string]: Color3}?,
-	DisplayOrder: number?,
+	Transparency: number?,
 	Scale: number?,
 }
 export type PageOptions = {
@@ -49,6 +50,14 @@ export type Label = {
 }
 export type ButtonOptions = {Description: string?, Callback: (() -> ())?}
 export type KeybindOptions = {Enabled: boolean?, Default: Enum.KeyCode?}
+export type KeybindControlOptions = {Text: string, Default: Enum.KeyCode?, Callback: ((Enum.KeyCode) -> ())?}
+export type KeybindControl = {
+	GetValue: (self: KeybindControl) -> Enum.KeyCode,
+	SetKeybind: (self: KeybindControl, keyCode: Enum.KeyCode?) -> (),
+	SetValue: (self: KeybindControl, keyCode: Enum.KeyCode) -> (),
+	Instance: Frame,
+	[string]: any,
+}
 export type ToggleOptions = {Text: string, Description: string?, Default: boolean?, Keybind: KeybindOptions?, Callback: ((boolean) -> ())?}
 export type SliderOptions = {
 	Minimum: number,
@@ -133,6 +142,7 @@ export type Section = {
 	AddColorPicker: (self: Section, options: ColorPickerOptions) -> ColorPicker,
 	AddDropdown: (self: Section, options: DropdownOptions) -> Dropdown,
 	AddImage: (self: Section, options: ImageOptions) -> ImageLabel,
+	AddKeybind: (self: Section, options: KeybindControlOptions) -> KeybindControl,
 	AddLabel: (self: Section, options: LabelOptions | string) -> Label,
 	AddPalettePreset: (self: Section, options: PalettePresetOptions) -> TextButton,
 	AddSeparator: (self: Section) -> Frame,
@@ -163,6 +173,7 @@ export type Window = {
 	SetPalette: (self: Window, palette: Palette) -> (),
 	SetPaletteColor: (self: Window, name: PaletteColor, color: Color3) -> (),
 	SetScale: (self: Window, scale: number) -> (),
+	SetTransparency: (self: Window, transparency: number) -> (),
 	SetToggleKey: (self: Window, keyCode: Enum.KeyCode) -> (),
 	SetVisible: (self: Window, visible: boolean) -> (),
 	Toggle: (self: Window) -> boolean,
@@ -262,6 +273,7 @@ const LAYOUT = table.freeze({
 	ToggleKeybindWidth = 68,
 	ToggleKeybindGap = 8,
 	ToggleKeybindLabelInset = 144,
+	KeybindControlWidth = 88,
 	SliderHeight = 42,
 	SliderInset = 8,
 	SliderValueWidth = 48,
@@ -289,7 +301,8 @@ const FAST_TWEEN: TweenInfo = TweenInfo.new(0.12, Enum.EasingStyle.Sine, Enum.Ea
 const NORMAL_TWEEN: TweenInfo = TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 const DROPDOWN_TWEEN: TweenInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 const DROPDOWN_CLOSE_TWEEN: TweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-const WINDOW_TWEEN: TweenInfo = TweenInfo.new(0.16, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+const SECTION_TWEEN: TweenInfo = TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+const WINDOW_TWEEN: TweenInfo = TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 const INDICATOR_TWEEN: TweenInfo = TweenInfo.new(0.12, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
 const UI: Library = {} :: any
 const WindowClass = {}
@@ -297,6 +310,7 @@ const PageClass = {}
 const SectionClass = {}
 const LabelClass = {}
 const ToggleClass = {}
+const KeybindControlClass = {}
 const SliderClass = {}
 const DropdownClass = {}
 const ColorPickerClass = {}
@@ -305,6 +319,7 @@ const windowRegistry: {[Instance]: {[string]: Window}} = setmetatable({}, {__mod
 
 -- Services
 const Players: Players = game:GetService("Players")
+const CoreGuiService: CoreGui = game:GetService("CoreGui")
 const RunService: RunService = game:GetService("RunService")
 const TweenService: TweenService = game:GetService("TweenService")
 const UserInputService: UserInputService = game:GetService("UserInputService")
@@ -316,6 +331,7 @@ PageClass.__index = PageClass
 SectionClass.__index = SectionClass
 LabelClass.__index = LabelClass
 ToggleClass.__index = ToggleClass
+KeybindControlClass.__index = KeybindControlClass
 SliderClass.__index = SliderClass
 DropdownClass.__index = DropdownClass
 ColorPickerClass.__index = ColorPickerClass
@@ -442,11 +458,15 @@ local function corner(parent: Instance, radius: number | UDim): UICorner
 end
 
 local function stroke(parent: Instance, palette: Palette, transparency: number?): UIStroke
-	return create("UIStroke", parent, {
-		Color = palette.Border,
-		Thickness = 1,
-		Transparency = transparency or 0,
-	})
+	const result: UIStroke = Instance.new("UIStroke")
+	result.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	result.Color = palette.Border
+	result.LineJoinMode = Enum.LineJoinMode.Round
+	result.Thickness = 1
+	result.Transparency = transparency or 0
+	result:SetAttribute("PaletteColorRole", "Border")
+	result.Parent = parent
+	return result
 end
 
 local function padding(parent: Instance, left: number, right: number, top: number, bottom: number): UIPadding
@@ -501,6 +521,15 @@ local function bindPaletteColors(window: Window, instance: Instance): ()
 			return (instance :: any)[propertyName]
 		end)
 		if not success or typeof(color) ~= "Color3" then continue end
+		const explicitRole: any = instance:GetAttribute("PaletteColorRole")
+		if typeof(explicitRole) == "string" and window._palette[explicitRole] ~= nil then
+			if not bindings then
+				bindings = {}
+				window._colorBindings[instance] = bindings
+			end
+			bindings[propertyName] = explicitRole
+			continue
+		end
 		for _, paletteColor: PaletteColorInfo in PALETTE_COLORS do
 			local role: PaletteColor = paletteColor.Name
 			if window._palette[role] == color then
@@ -536,6 +565,58 @@ local function clearPaletteBinding(window: Window, instance: Instance, propertyN
 	if next(bindings) == nil then window._colorBindings[instance] = nil end
 end
 
+local function composeTransparency(window: Window, value: number): number
+	return 1 - (1 - value) * (1 - window._transparency)
+end
+
+local function bindTransparency(window: Window, instance: Instance): ()
+	const target: any = instance
+	const bindings: TransparencyBindings = window._transparencyBindings[instance] or {}
+	local changed: boolean = false
+	local function bind(propertyName: string): ()
+		if bindings[propertyName] ~= nil then return end
+		const success: boolean, value: any = pcall(function(): any
+			return target[propertyName]
+		end)
+		if not success or typeof(value) ~= "number" then return end
+		bindings[propertyName] = value
+		target[propertyName] = composeTransparency(window, value)
+		changed = true
+	end
+	if instance:IsA("GuiObject") then bind("BackgroundTransparency") end
+	if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then bind("TextTransparency") end
+	if instance:IsA("ImageLabel") or instance:IsA("ImageButton") then bind("ImageTransparency") end
+	if instance:IsA("ScrollingFrame") then bind("ScrollBarImageTransparency") end
+	if instance:IsA("UIStroke") then bind("Transparency") end
+	if changed then window._transparencyBindings[instance] = bindings end
+end
+
+local function setTransparencyBase(window: Window, instance: Instance, propertyName: string, value: number): ()
+	if instance:IsA("CanvasGroup") and propertyName == "GroupTransparency" then
+		(instance :: any)[propertyName] = value
+		return
+	end
+	const bindings: TransparencyBindings = window._transparencyBindings[instance] or {}
+	bindings[propertyName] = value
+	window._transparencyBindings[instance] = bindings
+	(instance :: any)[propertyName] = composeTransparency(window, value)
+end
+
+local function applyTransparency(window: Window, transparency: number): ()
+	window._transparency = transparency
+	if window._hidden then return end
+	for instance: Instance, bindings: TransparencyBindings in window._transparencyBindings do
+		if not instance.Parent and instance ~= window.MainFrame then
+			window._transparencyBindings[instance] = nil
+			continue
+		end
+		const target: any = instance
+		for propertyName: string, value: number in bindings do
+			target[propertyName] = composeTransparency(window, value)
+		end
+	end
+end
+
 local function applyWindowFont(window: Window, instance: Instance): ()
 	if not instance:IsA("TextLabel") and not instance:IsA("TextButton") and not instance:IsA("TextBox") then return end
 	const textObject: TextLabel | TextButton | TextBox = instance :: any
@@ -552,10 +633,20 @@ local function applyWindowFont(window: Window, instance: Instance): ()
 	end))
 end
 
-local function animate(window: Window, instance: Instance, info: TweenInfo, goals: Properties): Tween
+local function animate(window: Window, instance: Instance, info: TweenInfo, goals: Properties, preserveTransparency: boolean?): Tween
 	const previous: Tween? = window._tweens[instance]
 	if previous then previous:Cancel() end
-	const tween: Tween = TweenService:Create(instance, info, goals)
+	const tweenGoals: Properties = table.clone(goals)
+	const bindings: TransparencyBindings? = window._transparencyBindings[instance]
+	if not preserveTransparency and bindings then
+		for propertyName: string, value: any in goals do
+			if bindings[propertyName] ~= nil and typeof(value) == "number" then
+				bindings[propertyName] = value
+				tweenGoals[propertyName] = composeTransparency(window, value)
+			end
+		end
+	end
+	const tween: Tween = TweenService:Create(instance, info, tweenGoals)
 	window._tweens[instance] = tween
 	tween.Completed:Once(function(): ()
 		if window._tweens[instance] == tween then window._tweens[instance] = nil end
@@ -608,13 +699,39 @@ local function keybindText(keyCode: Enum.KeyCode?): string
 	return names[keyCode.Name] or keyCode.Name
 end
 
+local function beginKeybindCapture(window: Window, target: KeybindCapture, button: TextButton, buttonStroke: UIStroke?): ()
+	if window._keybindCapture == target then
+		target:SetKeybind(target._keybind)
+		return
+	end
+	if window._keybindCapture then
+		const capturing: KeybindCapture = window._keybindCapture
+		capturing:SetKeybind(capturing._keybind)
+	end
+	window._keybindCapture = target
+	button.Text = "Press key"
+	setPaletteBinding(window, button, "TextColor3", "Text")
+	setPaletteRole(window, button, "BackgroundColor3", "SurfaceHover")
+	animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
+	if buttonStroke then
+		setPaletteRole(window, buttonStroke, "Color", "Accent")
+		animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Accent, Transparency = 0 })
+	end
+end
+
 local function fittedScale(window: Window): number
 	local viewport: Vector2 = window.Root.AbsoluteSize
 	if viewport.X <= 0 or viewport.Y <= 0 then
 		viewport = viewportSize()
 	end
 	const current: number = math.max(window._scale.Scale, 0.01)
-	const nominal: Vector2 = window.MainFrame.AbsoluteSize / current
+	local nominal: Vector2 = window.MainFrame.AbsoluteSize / current
+	if window._minimized then
+		nominal = Vector2.new(
+			math.clamp(window._expandedSize.X.Scale * viewport.X + window._expandedSize.X.Offset, LAYOUT.WindowMinimumWidth, LAYOUT.WindowMaximumWidth),
+			math.clamp(window._expandedSize.Y.Scale * viewport.Y + window._expandedSize.Y.Offset, LAYOUT.WindowMinimumHeight, LAYOUT.WindowMaximumHeight)
+		)
+	end
 	const fitRatio: number = math.min(
 		1,
 		math.max(0, (viewport.X - 32) / math.max(nominal.X, 1)),
@@ -773,8 +890,7 @@ end
 function UI.new(options: WindowOptions?): Window
 	assertCondition(options == nil or typeof(options) == "table", "options must be a table")
 	const settings: WindowOptions = options or {}
-	const player: Player? = Players.LocalPlayer
-	const parent: Instance = settings.Parent or assert(player, "UILibrary requires a LocalPlayer"):WaitForChild("PlayerGui")
+	const parent: Instance = CoreGuiService
 	const name: string = settings.Name or "ModernUI"
 	assertCondition(typeof(name) == "string" and #name > 0 and #name <= 100, "Name must contain 1-100 characters")
 	const baseScale: number = settings.Scale or 1
@@ -786,8 +902,8 @@ function UI.new(options: WindowOptions?): Window
 	assertCondition(isFiniteUDim2(size), "Size must be a finite UDim2")
 	assertCondition(isFiniteUDim2(position), "Position must be a finite UDim2")
 	assertCondition(typeof(toggleKey) == "EnumItem" and toggleKey.EnumType == Enum.KeyCode and toggleKey ~= Enum.KeyCode.Unknown, "ToggleKey must be a valid Enum.KeyCode")
-	assertCondition(settings.DisplayOrder == nil or isFiniteNumber(settings.DisplayOrder) and settings.DisplayOrder % 1 == 0, "DisplayOrder must be an integer")
 	assertCondition(settings.Palette == nil or typeof(settings.Palette) == "table", "Palette must be a table")
+	assertCondition(settings.Transparency == nil or isFiniteNumber(settings.Transparency) and settings.Transparency >= 0 and settings.Transparency <= 1, "Transparency must be between 0 and 1")
 	assertCondition(settings.Title == nil or typeof(settings.Title) == "string", "Title must be a string")
 	assertCondition(settings.Logo == nil or typeof(settings.Logo) == "string", "Logo must be a string")
 
@@ -809,11 +925,10 @@ function UI.new(options: WindowOptions?): Window
 		end
 	end
 	const root: ScreenGui = UI.Create("ScreenGui", {
-		DisplayOrder = settings.DisplayOrder or 1000,
+		DisplayOrder = 0,
 		Name = name,
 		ResetOnSpawn = false,
-		ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets,
-		ZIndexBehavior = Enum.ZIndexBehavior.Global,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		Parent = parent,
 	})
 	const main: Frame = create("Frame", root, {
@@ -829,7 +944,8 @@ function UI.new(options: WindowOptions?): Window
 	corner(main, 11)
 	const mainStroke: UIStroke = stroke(main, palette, 0)
 	mainStroke.Color = palette.Accent
-	create("UISizeConstraint", main, {
+	mainStroke:SetAttribute("PaletteColorRole", "Accent")
+	local sizeConstraint: UISizeConstraint = create("UISizeConstraint", main, {
 		MaxSize = Vector2.new(LAYOUT.WindowMaximumWidth, LAYOUT.WindowMaximumHeight),
 		MinSize = Vector2.new(LAYOUT.WindowMinimumWidth, LAYOUT.WindowMinimumHeight),
 	})
@@ -842,9 +958,12 @@ function UI.new(options: WindowOptions?): Window
 	const titleOffset: number = if settings.Logo then 58 else 16
 	const title: TextLabel = textLabel(topBar, settings.Title or "Window", UDim2.new(1, -titleOffset - LAYOUT.TopBarTitleRightInset, 0, 35), 30, palette.Text, LAYER.TopBar + 2)
 	title.Position = UDim2.fromOffset(titleOffset, 3)
-	create("Frame", main, { BackgroundColor3 = palette.Border, BorderSizePixel = 0, Position = UDim2.fromOffset(0, LAYOUT.TopBarHeight - LAYOUT.TopBarRuleHeight), Size = UDim2.new(1, 0, 0, LAYOUT.TopBarRuleHeight), ZIndex = LAYER.TopBar })
+	const topBarDivider: Frame = create("Frame", main, { BackgroundColor3 = palette.Border, BorderSizePixel = 0, Position = UDim2.fromOffset(0, LAYOUT.TopBarHeight - LAYOUT.TopBarRuleHeight), Size = UDim2.new(1, 0, 0, LAYOUT.TopBarRuleHeight), ZIndex = LAYER.TopBar })
+	topBarDivider:SetAttribute("PaletteColorRole", "Border")
 	const minimize: TextButton = create("TextButton", topBar, { AutoButtonColor = false, BackgroundTransparency = 1, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.GothamBold), Position = UDim2.new(1, -LAYOUT.TopBarMinimizeRightInset - LAYOUT.TopBarButtonWidth, 0, LAYOUT.TopBarButtonTop), Size = UDim2.fromOffset(LAYOUT.TopBarButtonWidth, LAYOUT.TopBarButtonHeight), Text = "−", TextColor3 = palette.MutedText, TextSize = 21, ZIndex = LAYER.TopBar + 2 })
 	const close: TextButton = create("TextButton", topBar, { AutoButtonColor = false, BackgroundTransparency = 1, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.GothamBold), Position = UDim2.new(1, -LAYOUT.TopBarCloseRightInset - LAYOUT.TopBarButtonWidth, 0, LAYOUT.TopBarButtonTop), Size = UDim2.fromOffset(LAYOUT.TopBarButtonWidth, LAYOUT.TopBarButtonHeight), Text = "X", TextColor3 = palette.MutedText, TextSize = 15, ZIndex = LAYER.TopBar + 2 })
+	corner(minimize, 6)
+	corner(close, 6)
 	const sidebar: Frame = create("Frame", main, { BackgroundColor3 = palette.Background, BorderSizePixel = 0, ClipsDescendants = true, Position = UDim2.fromOffset(0, LAYOUT.TopBarHeight), Size = UDim2.new(0, LAYOUT.SidebarWidth, 1, -LAYOUT.TopBarHeight), ZIndex = LAYER.Sidebar })
 	const pageButtons: ScrollingFrame = create("ScrollingFrame", sidebar, {
 		Active = true,
@@ -858,25 +977,34 @@ function UI.new(options: WindowOptions?): Window
 		Size = UDim2.fromScale(1, 1),
 		ZIndex = LAYER.Navigation,
 	})
-	create("Frame", sidebar, { AnchorPoint = Vector2.new(1, 0), BackgroundColor3 = palette.Border, BorderSizePixel = 0, Position = UDim2.fromScale(1, 0), Size = UDim2.new(0, 1, 1, 0), ZIndex = LAYER.Navigation })
+	const sidebarDivider: Frame = create("Frame", sidebar, { AnchorPoint = Vector2.new(1, 0), BackgroundColor3 = palette.Border, BorderSizePixel = 0, Position = UDim2.fromScale(1, 0), Size = UDim2.new(0, 1, 1, 0), ZIndex = LAYER.Navigation })
+	sidebarDivider:SetAttribute("PaletteColorRole", "Border")
 	const indicator: Frame = create("Frame", pageButtons, { AnchorPoint = Vector2.new(0, 0.5), BackgroundColor3 = palette.Accent, BorderSizePixel = 0, Size = UDim2.fromOffset(3, 18), Visible = false, ZIndex = LAYER.Navigation + 5 })
 	corner(indicator, 1.5)
 	const pages: Frame = create("Frame", main, { BackgroundTransparency = 1, ClipsDescendants = true, Position = UDim2.fromOffset(LAYOUT.SidebarWidth, LAYOUT.TopBarHeight), Size = UDim2.new(1, -LAYOUT.SidebarWidth, 1, -LAYOUT.TopBarHeight), ZIndex = LAYER.Page })
 	const overlay: Frame = create("Frame", main, { Active = false, BackgroundTransparency = 1, ClipsDescendants = false, Size = UDim2.fromScale(1, 1), ZIndex = LAYER.Overlay })
 	const self: Window = setmetatable({
 		Root = root, MainFrame = main, _baseScale = baseScale, _connections = {}, _destroyed = false,
-		_colorBindings = setmetatable({}, {__mode = "k"}), _colorPickers = {}, _dropdowns = {}, _toggles = {}, _keybindCapture = nil,
-		_fadeState = {}, _hidden = false, _overlay = overlay, _pageButtons = pageButtons, _pageCount = 0,
+		_colorBindings = setmetatable({}, {__mode = "k"}), _transparencyBindings = setmetatable({}, {__mode = "k"}),
+		_colorPickers = {}, _dropdowns = {}, _toggles = {}, _keybindCapture = nil,
+		_expandedPosition = position, _expandedSize = size, _hidden = false, _minimized = false, _overlay = overlay, _pageButtons = pageButtons, _pageCount = 0,
 		_indicator = indicator, _pages = {}, _pagesContainer = pages, _scale = scale, _selectedPage = nil, _sliderDrag = nil,
 		_font = Enum.Font.Gotham, _fontConnections = {}, _fontUpdating = {}, _palette = palette,
-		_toggleKey = toggleKey, _transitionId = 0, _tweens = {}, _parent = parent, _name = name,
+		_toggleKey = toggleKey, _transparency = settings.Transparency or 0, _sizeConstraint = sizeConstraint,
+		_transitionId = 0, _tweens = {}, _parent = parent, _name = name,
+		_fadeState = {},
 	}, WindowClass) :: any
 	track(self, root.DescendantAdded:Connect(function(instance: Instance): ()
 		applyWindowFont(self, instance)
 		bindPaletteColors(self, instance)
+		bindTransparency(self, instance)
 	end))
-	for _, instance: Instance in main:GetDescendants() do bindPaletteColors(self, instance) end
+	for _, instance: Instance in main:GetDescendants() do
+		bindPaletteColors(self, instance)
+		bindTransparency(self, instance)
+	end
 	bindPaletteColors(self, main)
+	bindTransparency(self, main)
 	local activeParentWindows: {[string]: Window} = windowRegistry[parent]
 	if not activeParentWindows then
 		activeParentWindows = {}
@@ -915,6 +1043,17 @@ function UI.new(options: WindowOptions?): Window
 			if dragging then
 				main.Position = targetPosition
 				currentPosition = targetPosition
+				if self._minimized then
+					const expandedPosition: UDim2 = self._expandedPosition
+					self._expandedPosition = UDim2.new(
+						expandedPosition.X.Scale,
+						expandedPosition.X.Offset + targetPosition.X.Offset - startPosition.X.Offset,
+						expandedPosition.Y.Scale,
+						expandedPosition.Y.Offset + targetPosition.Y.Offset - startPosition.Y.Offset
+					)
+				else
+					self._expandedPosition = targetPosition
+				end
 			end
 			dragging = false
 			self._sliderDrag = nil
@@ -928,7 +1067,7 @@ function UI.new(options: WindowOptions?): Window
 	end))
 	track(self, UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean): ()
 		if input.KeyCode ~= Enum.KeyCode.Unknown then
-			const capturing: Toggle? = self._keybindCapture
+			const capturing: KeybindCapture? = self._keybindCapture
 			if capturing then
 				const keyboardInput: boolean = input.UserInputType == Enum.UserInputType.Keyboard
 				if keyboardInput and UserInputService:GetFocusedTextBox() then return end
@@ -963,27 +1102,80 @@ function UI.new(options: WindowOptions?): Window
 			end
 		end
 	end))
-	track(self, minimize.Activated:Connect(function(): () self:SetVisible(false) end))
-	track(self, close.Activated:Connect(function(): () self:Destroy() end))
+	setPaletteBinding(self, minimize, "BackgroundColor3", "SurfaceHover")
+	setPaletteBinding(self, close, "BackgroundColor3", "SurfaceHover")
+	track(self, minimize.Activated:Connect(function(): ()
+		closeDropdowns(self)
+		closeColorPickers(self)
+		self._minimized = not self._minimized
+		if self._minimized then
+			minimize.Text = "+"
+			self._sizeConstraint.MinSize = Vector2.new(LAYOUT.WindowMinimumWidth, LAYOUT.TopBarHeight)
+			local viewport: Vector2 = root.AbsoluteSize
+			if viewport.X <= 0 or viewport.Y <= 0 then viewport = viewportSize() end
+			const compactHeight: number = LAYOUT.TopBarHeight * self._scale.Scale
+			const expandedHeight: number = math.clamp(
+				self._expandedSize.Y.Scale * viewport.Y + self._expandedSize.Y.Offset,
+				LAYOUT.WindowMinimumHeight,
+				LAYOUT.WindowMaximumHeight
+			) * self._scale.Scale
+			const top: number = main.Position.Y.Scale * viewport.Y + main.Position.Y.Offset - main.AbsoluteSize.Y * 0.5
+			const expandedCenter: number = top + expandedHeight * 0.5
+			self._expandedPosition = UDim2.new(
+				main.Position.X.Scale,
+				main.Position.X.Offset,
+				main.Position.Y.Scale,
+				expandedCenter - main.Position.Y.Scale * viewport.Y
+			)
+			const compactPosition: UDim2 = UDim2.new(
+				main.Position.X.Scale,
+				main.Position.X.Offset,
+				main.Position.Y.Scale,
+				top + compactHeight * 0.5 - main.Position.Y.Scale * viewport.Y
+			)
+			animate(self, main, SECTION_TWEEN, {
+				Position = compactPosition,
+				Size = UDim2.new(self._expandedSize.X.Scale, self._expandedSize.X.Offset, 0, LAYOUT.TopBarHeight),
+			})
+		else
+			minimize.Text = "−"
+			self._sizeConstraint.MinSize = Vector2.new(LAYOUT.WindowMinimumWidth, LAYOUT.WindowMinimumHeight)
+			const expandedPosition: UDim2 = clampWindowPosition(self, self._expandedPosition)
+			const tween: Tween = animate(self, main, SECTION_TWEEN, { Position = expandedPosition, Size = self._expandedSize })
+			tween.Completed:Once(function(playbackState: Enum.PlaybackState): ()
+				if playbackState == Enum.PlaybackState.Completed and not self:IsDestroyed() and not self._minimized then
+					self.MainFrame.Position = clampWindowPosition(self, self.MainFrame.Position)
+					self._expandedPosition = self.MainFrame.Position
+					self._scale.Scale = fittedScale(self)
+				end
+			end)
+		end
+	end))
+	track(self, close.Activated:Connect(function(): () self:SetVisible(false) end))
 	track(self, minimize.MouseEnter:Connect(function(): ()
+		setPaletteRole(self, minimize, "BackgroundColor3", "SurfaceHover")
 		setPaletteRole(self, minimize, "TextColor3", "Text")
-		animate(self, minimize, FAST_TWEEN, { TextColor3 = self._palette.Text })
+		animate(self, minimize, FAST_TWEEN, { BackgroundTransparency = 0.15, TextColor3 = self._palette.Text })
 	end))
 	track(self, minimize.MouseLeave:Connect(function(): ()
+		setPaletteRole(self, minimize, "BackgroundColor3", "SurfaceHover")
 		setPaletteRole(self, minimize, "TextColor3", "MutedText")
-		animate(self, minimize, FAST_TWEEN, { TextColor3 = self._palette.MutedText })
+		animate(self, minimize, FAST_TWEEN, { BackgroundTransparency = 1, TextColor3 = self._palette.MutedText })
 	end))
 	track(self, close.MouseEnter:Connect(function(): ()
+		setPaletteRole(self, close, "BackgroundColor3", "SurfaceHover")
 		setPaletteRole(self, close, "TextColor3", "Text")
-		animate(self, close, FAST_TWEEN, { TextColor3 = self._palette.Text })
+		animate(self, close, FAST_TWEEN, { BackgroundTransparency = 0.15, TextColor3 = self._palette.Text })
 	end))
 	track(self, close.MouseLeave:Connect(function(): ()
+		setPaletteRole(self, close, "BackgroundColor3", "SurfaceHover")
 		setPaletteRole(self, close, "TextColor3", "MutedText")
-		animate(self, close, FAST_TWEEN, { TextColor3 = self._palette.MutedText })
+		animate(self, close, FAST_TWEEN, { BackgroundTransparency = 1, TextColor3 = self._palette.MutedText })
 	end))
 	local function updateViewport(): ()
 		self._scale.Scale = fittedScale(self)
 		self.MainFrame.Position = clampWindowPosition(self, self.MainFrame.Position)
+		if not self._minimized then self._expandedPosition = self.MainFrame.Position end
 		if self._selectedPage then moveIndicator(self, self._selectedPage) end
 		for _, dropdown: Dropdown in self._dropdowns do positionDropdown(dropdown) end
 		for _, picker: ColorPicker in self._colorPickers do positionColorPicker(picker) end
@@ -1087,7 +1279,7 @@ function WindowClass:SelectPage(pageOrName: Page | string): ()
 	const selectedPage: Page = page :: Page
 	if self._selectedPage == selectedPage then return end
 	if self._keybindCapture then
-		const capturing: Toggle = self._keybindCapture
+		const capturing: KeybindCapture = self._keybindCapture
 		capturing:SetKeybind(capturing._keybind)
 	end
 	closeDropdowns(self)
@@ -1101,7 +1293,7 @@ function WindowClass:SelectPage(pageOrName: Page | string): ()
 		cancelAnimation(self, candidate.Button)
 		cancelAnimation(self, candidate._label)
 		cancelAnimation(self, group)
-		candidate.Button.BackgroundTransparency = 1
+		setTransparencyBase(self, candidate.Button, "BackgroundTransparency", 1)
 		setPaletteRole(self, candidate._label, "TextColor3", "MutedText")
 		candidate._label.TextColor3 = self._palette.MutedText
 		if candidate.Icon then
@@ -1111,7 +1303,7 @@ function WindowClass:SelectPage(pageOrName: Page | string): ()
 		end
 		group.Visible = selected
 		group.Interactable = selected
-		group.GroupTransparency = if selected then 0 else 1
+		setTransparencyBase(self, group, "GroupTransparency", if selected then 0 else 1)
 		group.Position = UDim2.fromOffset(0, 0)
 	end
 end
@@ -1126,10 +1318,18 @@ function WindowClass:SetVisible(visible: boolean): ()
 		const capturing: Toggle = self._keybindCapture
 		capturing:SetKeybind(capturing._keybind)
 	end
+	if not visible then
+		const focusedTextBox: TextBox? = UserInputService:GetFocusedTextBox()
+		if focusedTextBox and focusedTextBox:IsDescendantOf(self.MainFrame) then focusedTextBox:ReleaseFocus() end
+	end
 	if visible then
 		self.Root.Enabled = true
 		for object: Instance, state: Properties in self._fadeState do
 			if object.Parent then
+				const goals: Properties = {}
+				for propertyName: string, value: number in state do
+					goals[propertyName] = composeTransparency(self, value)
+				end
 				if object:IsA("UIStroke") then
 					object.Transparency = 1
 				elseif object:IsA("GuiObject") then
@@ -1139,8 +1339,9 @@ function WindowClass:SetVisible(visible: boolean): ()
 					elseif object:IsA("ImageLabel") or object:IsA("ImageButton") then
 						object.ImageTransparency = 1
 					end
+					if object:IsA("ScrollingFrame") then object.ScrollBarImageTransparency = 1 end
 				end
-				animate(self, object, WINDOW_TWEEN, state)
+				animate(self, object, WINDOW_TWEEN, goals, true)
 			end
 		end
 		table.clear(self._fadeState)
@@ -1152,25 +1353,40 @@ function WindowClass:SetVisible(visible: boolean): ()
 		for _, instance: Instance in objects do
 			if instance:IsA("GuiObject") then
 				const object: GuiObject = instance
-				const state: Properties = {
-					BackgroundTransparency = object.BackgroundTransparency,
-				}
+				const bindings: TransparencyBindings? = self._transparencyBindings[object]
+				const state: Properties = {}
 				const goals: Properties = {
 					BackgroundTransparency = 1,
 				}
+				state.BackgroundTransparency = if bindings and bindings.BackgroundTransparency ~= nil
+					then bindings.BackgroundTransparency
+					else object.BackgroundTransparency
+				if object:IsA("ScrollingFrame") then
+					state.ScrollBarImageTransparency = if bindings and bindings.ScrollBarImageTransparency ~= nil
+						then bindings.ScrollBarImageTransparency
+						else object.ScrollBarImageTransparency
+					goals.ScrollBarImageTransparency = 1
+				end
 				if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
-					state.TextTransparency = object.TextTransparency
+					state.TextTransparency = if bindings and bindings.TextTransparency ~= nil
+						then bindings.TextTransparency
+						else object.TextTransparency
 					goals.TextTransparency = 1
 				elseif object:IsA("ImageLabel") or object:IsA("ImageButton") then
-					state.ImageTransparency = object.ImageTransparency
+					state.ImageTransparency = if bindings and bindings.ImageTransparency ~= nil
+						then bindings.ImageTransparency
+						else object.ImageTransparency
 					goals.ImageTransparency = 1
 				end
 				self._fadeState[object] = state
-				animate(self, object, WINDOW_TWEEN, goals)
+				animate(self, object, WINDOW_TWEEN, goals, true)
 			elseif instance:IsA("UIStroke") then
-				const state: Properties = { Transparency = instance.Transparency }
+				const bindings: TransparencyBindings? = self._transparencyBindings[instance]
+				const state: Properties = {
+					Transparency = if bindings and bindings.Transparency ~= nil then bindings.Transparency else instance.Transparency,
+				}
 				self._fadeState[instance] = state
-				animate(self, instance, WINDOW_TWEEN, { Transparency = 1 })
+				animate(self, instance, WINDOW_TWEEN, { Transparency = 1 }, true)
 			end
 		end
 		task.delay(WINDOW_TWEEN.Time, function(): ()
@@ -1199,6 +1415,11 @@ function WindowClass:SetScale(scale: number): ()
 	for _, picker: ColorPicker in self._colorPickers do positionColorPicker(picker) end
 end
 
+function WindowClass:SetTransparency(transparency: number): ()
+	assertCondition(isFiniteNumber(transparency) and transparency >= 0 and transparency <= 1, "transparency must be between 0 and 1")
+	applyTransparency(self, transparency)
+end
+
 function WindowClass:GetPaletteColor(name: PaletteColor): Color3
 	assertCondition(self._palette[name] ~= nil, `unknown palette color '{name}'`)
 	return self._palette[name]
@@ -1207,6 +1428,10 @@ end
 function WindowClass:SetPaletteColor(name: PaletteColor, color: Color3): ()
 	assertCondition(self._palette[name] ~= nil, `unknown palette color '{name}'`)
 	assertCondition(typeof(color) == "Color3", "palette color must be a Color3")
+	for _, instance: Instance in self.MainFrame:GetDescendants() do
+		bindPaletteColors(self, instance)
+	end
+	bindPaletteColors(self, self.MainFrame)
 	self._palette[name] = color
 	for instance: Instance, bindings: {[string]: PaletteColor} in self._colorBindings do
 		if not instance.Parent then
@@ -1449,42 +1674,74 @@ function PageClass:AddSection(options: SectionOptions | string): Section
 	padding(root, LAYOUT.SectionPadding, LAYOUT.SectionPadding, LAYOUT.SectionPadding, LAYOUT.SectionPadding)
 	const rootLayout: UIListLayout = list(root, LAYOUT.SectionContentGap)
 	const header: Frame = create("Frame", root, { BackgroundTransparency = 1, LayoutOrder = 0, Size = UDim2.new(1, 0, 0, if settings.Description then 44 else 27), ZIndex = LAYER.Section + 1 })
-	const title: TextLabel = textLabel(header, settings.Name, UDim2.new(1, -32, 0, 24), 15, self._window._palette.Text, LAYER.Section + 2)
+	const title: TextLabel = textLabel(header, settings.Name, UDim2.new(1, -40, 0, 24), 15, self._window._palette.Text, LAYER.Section + 2)
 	title.FontFace = Font.fromEnum(Enum.Font.GothamBold)
 	const collapseButton: TextButton = create("TextButton", header, {
 		AnchorPoint = Vector2.new(1, 0.5),
 		AutoButtonColor = false,
-		BackgroundTransparency = 1,
+		BackgroundColor3 = self._window._palette.SurfaceHover,
+		BackgroundTransparency = 0.1,
 		BorderSizePixel = 0,
 		FontFace = Font.fromEnum(Enum.Font.GothamBold),
 		Position = UDim2.new(1, 0, 0, 12),
-		Size = UDim2.fromOffset(24, 24),
+		Size = UDim2.fromOffset(28, 25),
 		Text = "-",
-		TextColor3 = self._window._palette.Accent,
-		TextSize = 20,
+		TextColor3 = self._window._palette.MutedText,
+		TextSize = 17,
 		ZIndex = LAYER.Section + 2,
 	})
+	corner(collapseButton, 7)
+	const collapseStroke: UIStroke = stroke(collapseButton, self._window._palette, 0.55)
 	if settings.Description then
-		const description: TextLabel = textLabel(header, settings.Description, UDim2.new(1, -32, 0, 18), 11, self._window._palette.MutedText, LAYER.Section + 2)
+		const description: TextLabel = textLabel(header, settings.Description, UDim2.new(1, -40, 0, 18), 11, self._window._palette.MutedText, LAYER.Section + 2)
 		description.Position = UDim2.fromOffset(0, 24)
 	end
-	const content: Frame = create("Frame", root, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Content })
+	const contentClip: Frame = create("Frame", root, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, ClipsDescendants = true, Interactable = true, LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Content })
+	const content: Frame = create("Frame", contentClip, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Content })
 	list(content, LAYOUT.ControlGap)
-	const section: Section = setmetatable({ Instance = content, _cardCount = 0, _cardRow = nil, _collapseButton = collapseButton, _collapsed = false, _page = self, _root = root }, SectionClass) :: any
-	setPaletteBinding(self._window, collapseButton, "TextColor3", "Accent")
+	const section: Section = setmetatable({ Instance = content, _cardCount = 0, _cardRow = nil, _collapseButton = collapseButton, _collapseStroke = collapseStroke, _collapsed = false, _contentClip = contentClip, _page = self, _root = root }, SectionClass) :: any
+	setPaletteBinding(self._window, collapseButton, "BackgroundColor3", "SurfaceHover")
+	setPaletteBinding(self._window, collapseButton, "TextColor3", "MutedText")
+	track(self._window, collapseButton.MouseEnter:Connect(function(): ()
+		setPaletteRole(self._window, collapseButton, "TextColor3", "Text")
+		setPaletteRole(self._window, collapseStroke, "Color", "Accent")
+		animate(self._window, collapseButton, FAST_TWEEN, { BackgroundTransparency = 0, TextColor3 = self._window._palette.Text })
+		animate(self._window, collapseStroke, FAST_TWEEN, { Color = self._window._palette.Accent, Transparency = 0.15 })
+	end))
+	track(self._window, collapseButton.MouseLeave:Connect(function(): ()
+		setPaletteRole(self._window, collapseButton, "TextColor3", "MutedText")
+		setPaletteRole(self._window, collapseStroke, "Color", "Border")
+		animate(self._window, collapseButton, FAST_TWEEN, { BackgroundTransparency = 0.1, TextColor3 = self._window._palette.MutedText })
+		animate(self._window, collapseStroke, FAST_TWEEN, { Color = self._window._palette.Border, Transparency = 0.55 })
+	end))
 	track(self._window, collapseButton.Activated:Connect(function(): ()
 		section._collapsed = not section._collapsed
 		collapseButton.Text = if section._collapsed then "+" else "-"
+		const scale: number = math.max(self._window._scale.Scale, 0.01)
+		const contentHeight: number = content.AbsoluteSize.Y / scale
+		const currentHeight: number = contentClip.AbsoluteSize.Y / scale
 		if section._collapsed then
 			rootLayout.Padding = UDim.new(0, 0)
-			content.AutomaticSize = Enum.AutomaticSize.None
-			content.ClipsDescendants = true
-			content.Size = UDim2.new(1, 0, 0, 0)
+			contentClip.AutomaticSize = Enum.AutomaticSize.None
+			contentClip.ClipsDescendants = true
+			contentClip.Interactable = false
+			contentClip.Size = UDim2.new(1, 0, 0, currentHeight)
+			animate(self._window, contentClip, SECTION_TWEEN, { Size = UDim2.new(1, 0, 0, 0) })
+			animate(self._window, content, SECTION_TWEEN, { Position = UDim2.fromOffset(0, 5) })
 		else
 			rootLayout.Padding = UDim.new(0, LAYOUT.SectionContentGap)
-			content.ClipsDescendants = false
-			content.Size = UDim2.new(1, 0, 0, 0)
-			content.AutomaticSize = Enum.AutomaticSize.Y
+			contentClip.AutomaticSize = Enum.AutomaticSize.None
+			contentClip.ClipsDescendants = true
+			contentClip.Interactable = true
+			contentClip.Size = UDim2.new(1, 0, 0, currentHeight)
+			const tween: Tween = animate(self._window, contentClip, SECTION_TWEEN, { Size = UDim2.new(1, 0, 0, contentHeight) })
+			animate(self._window, content, SECTION_TWEEN, { Position = UDim2.fromOffset(0, 0) })
+			tween.Completed:Once(function(playbackState: Enum.PlaybackState): ()
+				if playbackState == Enum.PlaybackState.Completed and not self._window:IsDestroyed() and not section._collapsed then
+					contentClip.ClipsDescendants = false
+					contentClip.AutomaticSize = Enum.AutomaticSize.Y
+				end
+			end)
 		end
 	end))
 	return section
@@ -1606,7 +1863,9 @@ end
 
 function SectionClass:AddSeparator(): Frame
 	breakCards(self)
-	return create("Frame", self.Instance, { BackgroundColor3 = self._page._window._palette.Border, BackgroundTransparency = 0.38, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 1), ZIndex = LAYER.Content + 1 })
+	const separator: Frame = create("Frame", self.Instance, { BackgroundColor3 = self._page._window._palette.Border, BackgroundTransparency = 0.38, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 1), ZIndex = LAYER.Content + 1 })
+	setPaletteBinding(self._page._window, separator, "BackgroundColor3", "Border")
+	return separator
 end
 
 function SectionClass:AddImage(options: ImageOptions): ImageLabel
@@ -1674,6 +1933,68 @@ function SectionClass:AddCard(options: CardOptions): TextButton
 	return card
 end
 
+function SectionClass:AddKeybind(options: KeybindControlOptions): KeybindControl
+	const window: Window = self._page._window
+	assertCondition(typeof(options.Text) == "string" and #options.Text > 0, "keybind text must be non-empty")
+	assertCondition(
+		options.Default == nil or typeof(options.Default) == "EnumItem"
+			and options.Default.EnumType == Enum.KeyCode
+			and options.Default ~= Enum.KeyCode.Unknown,
+		"keybind default must be a valid Enum.KeyCode"
+	)
+	assertCondition(options.Callback == nil or typeof(options.Callback) == "function", "keybind callback must be a function")
+	const container: Frame = row(self, LAYOUT.ControlHeight)
+	const defaultKeybind: Enum.KeyCode = options.Default or Enum.KeyCode.RightShift
+	controlText(container, window._palette, options.Text, nil, LAYOUT.KeybindControlWidth + LAYOUT.ControlRightInset + LAYOUT.DropdownLabelGap)
+	const button: TextButton = create("TextButton", container, {
+		AnchorPoint = Vector2.new(1, 0.5),
+		AutoButtonColor = false,
+		BackgroundColor3 = window._palette.Control,
+		BorderSizePixel = 0,
+		FontFace = Font.fromEnum(Enum.Font.Gotham),
+		Position = UDim2.new(1, -LAYOUT.ControlRightInset, 0.5, 0),
+		Size = UDim2.fromOffset(LAYOUT.KeybindControlWidth, LAYOUT.ControlFieldHeight),
+		Text = keybindText(defaultKeybind),
+		TextColor3 = window._palette.MutedText,
+		TextSize = 12,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = LAYER.Content + 2,
+	})
+	corner(button, 6)
+	const buttonStroke: UIStroke = stroke(button, window._palette, 0.45)
+	setPaletteBinding(window, button, "BackgroundColor3", "Control")
+	setPaletteBinding(window, button, "TextColor3", "MutedText")
+	const keybind: KeybindControl = setmetatable({
+		Instance = container,
+		_keybind = defaultKeybind,
+		_default = defaultKeybind,
+	_button = button,
+	_buttonStroke = buttonStroke,
+	_callback = options.Callback,
+	_window = window,
+	}, KeybindControlClass) :: any
+	track(window, button.Activated:Connect(function(): ()
+		beginKeybindCapture(window, keybind, button, buttonStroke)
+	end))
+	track(window, button.MouseEnter:Connect(function(): ()
+		if window._keybindCapture ~= keybind then
+			setPaletteRole(window, button, "BackgroundColor3", "SurfaceHover")
+			setPaletteRole(window, buttonStroke, "Color", "Accent")
+			animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
+			animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Accent, Transparency = 0.15 })
+		end
+	end))
+	track(window, button.MouseLeave:Connect(function(): ()
+		if window._keybindCapture ~= keybind then
+			setPaletteRole(window, button, "BackgroundColor3", "Control")
+			setPaletteRole(window, buttonStroke, "Color", "Border")
+			animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.Control })
+			animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Border, Transparency = 0.45 })
+		end
+	end))
+	return keybind
+end
+
 function SectionClass:AddToggle(options: ToggleOptions): Toggle
 	const window: Window = self._page._window
 	assertCondition(typeof(options.Text) == "string" and #options.Text > 0, "toggle text must be non-empty")
@@ -1737,21 +2058,7 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 	}, ToggleClass) :: any
 	if keybindButton and keybindStroke then
 		track(window, keybindButton.Activated:Connect(function(): ()
-			if window._keybindCapture == toggle then
-				toggle:SetKeybind(toggle._keybind)
-				return
-			end
-			if window._keybindCapture then
-				const capturing: Toggle = window._keybindCapture
-				capturing:SetKeybind(capturing._keybind)
-			end
-			window._keybindCapture = toggle
-			keybindButton.Text = "Press key"
-			setPaletteBinding(window, keybindButton, "TextColor3", "Text")
-			setPaletteRole(window, keybindButton, "BackgroundColor3", "SurfaceHover")
-			setPaletteRole(window, keybindStroke, "Color", "Accent")
-			animate(window, keybindButton, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
-			animate(window, keybindStroke, FAST_TWEEN, { Color = window._palette.Accent, Transparency = 0 })
+			beginKeybindCapture(window, toggle, keybindButton, keybindStroke)
 		end))
 		track(window, keybindButton.MouseEnter:Connect(function(): ()
 			if window._keybindCapture ~= toggle then
@@ -1801,6 +2108,32 @@ function ToggleClass:SetKeybind(keyCode: Enum.KeyCode?): ()
 		animate(self._window, button, FAST_TWEEN, { BackgroundColor3 = self._window._palette.Control })
 	end
 	if buttonStroke then animate(self._window, buttonStroke, FAST_TWEEN, { Color = self._window._palette.Border, Transparency = 0.45 }) end
+end
+
+function KeybindControlClass:GetValue(): Enum.KeyCode
+	return self._keybind
+end
+
+function KeybindControlClass:SetValue(keyCode: Enum.KeyCode): ()
+	self:SetKeybind(keyCode)
+end
+
+function KeybindControlClass:SetKeybind(keyCode: Enum.KeyCode?): ()
+	assertCondition(
+		keyCode == nil or typeof(keyCode) == "EnumItem" and keyCode.EnumType == Enum.KeyCode and keyCode ~= Enum.KeyCode.Unknown,
+		"keybind must be a valid Enum.KeyCode or nil"
+	)
+	const updatedKeybind: Enum.KeyCode = keyCode or self._default
+	const changed: boolean = self._keybind ~= updatedKeybind
+	self._keybind = updatedKeybind
+	if self._window._keybindCapture == self then self._window._keybindCapture = nil end
+	self._button.Text = keybindText(updatedKeybind)
+	setPaletteBinding(self._window, self._button, "TextColor3", "MutedText")
+	setPaletteRole(self._window, self._button, "BackgroundColor3", "Control")
+	setPaletteRole(self._window, self._buttonStroke, "Color", "Border")
+	animate(self._window, self._button, FAST_TWEEN, { BackgroundColor3 = self._window._palette.Control })
+	animate(self._window, self._buttonStroke, FAST_TWEEN, { Color = self._window._palette.Border, Transparency = 0.45 })
+	if changed then invoke(self._callback, updatedKeybind) end
 end
 
 function ToggleClass:SetValue(value: boolean, emit: boolean?): ()
@@ -1916,17 +2249,17 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 		BackgroundTransparency = 1,
 		Position = UDim2.new(1, -LAYOUT.DropdownArrowRightInset, 0.5, 0),
 		Size = UDim2.fromOffset(LAYOUT.DropdownArrowWidth, LAYOUT.DropdownArrowHeight),
-		ZIndex = LAYER.Content + 3,
+		ZIndex = button.ZIndex + 1,
 	})
 	for index: number, rotation: number in { -45, 45 } do
 		const line: Frame = create("Frame", arrow, {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			BackgroundColor3 = window._palette.MutedText,
 			BorderSizePixel = 0,
-			Position = UDim2.fromOffset(if index == 1 then 5.5 else 10.5, 8),
+			Position = UDim2.fromOffset(if index == 1 then 5.5 else 10.5, 7.5),
 			Rotation = rotation,
 			Size = UDim2.fromOffset(LAYOUT.DropdownArrowLineThickness, LAYOUT.DropdownArrowLineLength + 1),
-			ZIndex = LAYER.Content + 4,
+			ZIndex = arrow.ZIndex + 1,
 		})
 		corner(line, 0.75)
 		setPaletteBinding(window, line, "BackgroundColor3", "MutedText")
