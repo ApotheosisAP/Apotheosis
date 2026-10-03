@@ -247,7 +247,7 @@ const LAYOUT = table.freeze({
 	TopBarLogoSize = 37,
 	SidebarWidth = 155,
 	PageButtonHeight = 41,
-	PageButtonGap = 8,
+	PageButtonGap = 4,
 	PagePadding = 12,
 	SectionPadding = 14,
 	PageSectionGap = 12,
@@ -730,7 +730,7 @@ local function keybindText(keyCode: Enum.KeyCode?): string
 	return names[keyCode.Name] or keyCode.Name
 end
 
-local function beginKeybindCapture(window: Window, target: KeybindCapture, button: TextButton, buttonStroke: UIStroke?): ()
+local function beginKeybindCapture(window: Window, target: KeybindCapture, button: TextButton): ()
 	if window._keybindCapture == target then
 		target:SetKeybind(target._keybind)
 		return
@@ -744,10 +744,6 @@ local function beginKeybindCapture(window: Window, target: KeybindCapture, butto
 	setPaletteBinding(window, button, "TextColor3", "Text")
 	setPaletteRole(window, button, "BackgroundColor3", "SurfaceHover")
 	animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
-	if buttonStroke then
-		setPaletteRole(window, buttonStroke, "Color", "Accent")
-		animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Accent, Transparency = 0 })
-	end
 end
 
 local function expandedWindowSize(window: Window, scale: number, viewport: Vector2): Vector2
@@ -1243,7 +1239,6 @@ function WindowClass:AddPage(options: PageOptions | string): Page
 		Size = UDim2.new(1, 0, 0, LAYOUT.PageButtonHeight), Text = "",
 		ZIndex = LAYER.Navigation + 1,
 	})
-	corner(button, 8)
 	setPaletteBinding(self, button, "BackgroundColor3", "SurfaceHover")
 	const nameLabel: TextLabel = textLabel(
 		button,
@@ -1276,7 +1271,7 @@ function WindowClass:AddPage(options: PageOptions | string): Page
 	})
 	padding(pageFrame, LAYOUT.PagePadding, LAYOUT.PagePadding, LAYOUT.PagePadding, LAYOUT.PagePadding)
 	list(pageFrame, LAYOUT.PageSectionGap)
-	const page: Page = setmetatable({
+		const page: Page = setmetatable({
 		Button = button, Icon = icon, Instance = pageFrame, Name = settings.Name,
 		_group = pageGroup, _label = nameLabel, _window = self,
 	}, PageClass) :: any
