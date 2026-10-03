@@ -989,12 +989,14 @@ function UI.new(options: WindowOptions?): Window
 	topBarDivider:SetAttribute("PaletteColorRole", "Border")
 	const minimize: TextButton = create("TextButton", topBar, { AutoButtonColor = false, BackgroundTransparency = 1, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.Gotham), Position = UDim2.new(1, -LAYOUT.TopBarButtonWidth * 2, 0, 0), Size = UDim2.fromOffset(LAYOUT.TopBarButtonWidth, LAYOUT.TopBarButtonHeight), Text = "−", TextColor3 = palette.MutedText, TextSize = 21, ZIndex = LAYER.TopBar + 2 })
 	const close: TextButton = create("TextButton", topBar, { AutoButtonColor = false, BackgroundTransparency = 1, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.Gotham), Position = UDim2.new(1, -LAYOUT.TopBarButtonWidth, 0, 0), Size = UDim2.fromOffset(LAYOUT.TopBarButtonWidth, LAYOUT.TopBarButtonHeight), Text = "×", TextColor3 = palette.MutedText, TextSize = 17, ZIndex = LAYER.TopBar + 2 })
+	corner(minimize, 10)
+	corner(close, 10)
 	const sidebar: Frame = create("Frame", main, { BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, Position = UDim2.fromOffset(0, LAYOUT.TopBarHeight), Size = UDim2.new(0, LAYOUT.SidebarWidth, 1, -LAYOUT.TopBarHeight), ZIndex = LAYER.Sidebar })
 	const pageButtons: ScrollingFrame = create("ScrollingFrame", sidebar, {
 		Active = true,
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = palette.Background,
-		BackgroundTransparency = 0,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(),
 		ClipsDescendants = true,
@@ -2290,17 +2292,17 @@ function SliderClass:SetValue(value: number, emit: boolean?): ()
 	if emit ~= false and changed then invoke(self._callback, clamped) end
 end
 
-local function setDropdownVisual(dropdown: Dropdown, active: boolean, tweenInfo: TweenInfo?): ()
+local function setDropdownVisual(dropdown: Dropdown, active: boolean, hovered: boolean, tweenInfo: TweenInfo?): ()
 	const window: Window = dropdown._window
 	const currentTween: TweenInfo = tweenInfo or FAST_TWEEN
-	const backgroundRole: PaletteColor = if active then "SurfaceHover" else "Control"
-	const strokeRole: PaletteColor = if active then "Accent" else "Border"
+	const backgroundRole: PaletteColor = if active then "Accent" else if hovered then "SurfaceHover" else "Control"
+	const strokeRole: PaletteColor = if active or hovered then "Accent" else "Border"
 	setPaletteRole(window, dropdown._button, "BackgroundColor3", backgroundRole)
 	setPaletteRole(window, dropdown._buttonStroke, "Color", strokeRole)
 	animate(window, dropdown._button, currentTween, { BackgroundColor3 = window._palette[backgroundRole] })
 	animate(window, dropdown._buttonStroke, currentTween, {
 		Color = window._palette[strokeRole],
-		Transparency = if active then 0.15 else 0.45,
+		Transparency = if active or hovered then 0.15 else 0.45,
 	})
 end
 
@@ -2377,13 +2379,13 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	track(window, button.MouseEnter:Connect(function(): ()
 		dropdown._hovered = true
 		if not dropdown._open then
-			setDropdownVisual(dropdown, true)
+			setDropdownVisual(dropdown, false, true)
 		end
 	end))
 	track(window, button.MouseLeave:Connect(function(): ()
 		dropdown._hovered = false
 		if not dropdown._open then
-			setDropdownVisual(dropdown, false)
+			setDropdownVisual(dropdown, false, false)
 		end
 	end))
 	track(window, button:GetPropertyChangedSignal("AbsolutePosition"):Connect(function(): () positionDropdown(dropdown) end))
@@ -2410,7 +2412,7 @@ function DropdownClass:SetOpen(open: boolean): ()
 	else
 		self._optionsFrame.Visible = false
 	end
-	setDropdownVisual(self, open or self._hovered, DROPDOWN_TWEEN)
+	setDropdownVisual(self, open, not open and self._hovered, DROPDOWN_TWEEN)
 end
 
 function DropdownClass:SetValue(value: string, emit: boolean?): ()
@@ -2421,7 +2423,9 @@ function DropdownClass:SetValue(value: string, emit: boolean?): ()
 	self._button.Text = value
 	for option: string, optionButton: TextButton in self._buttons do
 		const selected: boolean = option == value
-		optionButton.BackgroundColor3 = self._window._palette.SurfaceHover
+		const backgroundRole: PaletteColor = if selected then "Accent" else "SurfaceHover"
+		setPaletteRole(self._window, optionButton, "BackgroundColor3", backgroundRole)
+		optionButton.BackgroundColor3 = self._window._palette[backgroundRole]
 		optionButton.BackgroundTransparency = if selected then 0 else 1
 		setPaletteBinding(self._window, optionButton, "TextColor3", if selected then "Text" else "MutedText")
 	end
