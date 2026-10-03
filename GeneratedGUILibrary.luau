@@ -246,7 +246,7 @@ const LAYOUT = table.freeze({
 	TopBarTitleRightInset = 104,
 	TopBarLogoSize = 37,
 	SidebarWidth = 155,
-	PageButtonHeight = 41,
+	PageButtonHeight = 36,
 	PageButtonGap = 4,
 	PagePadding = 12,
 	SectionPadding = 14,
@@ -971,9 +971,7 @@ function UI.new(options: WindowOptions?): Window
 		Size = size,
 		ZIndex = LAYER.Window,
 	})
-	const mainStroke: UIStroke = stroke(main, palette, 0)
-	mainStroke.Color = palette.Accent
-	mainStroke:SetAttribute("PaletteColorRole", "Accent")
+	corner(main, 10)
 	local sizeConstraint: UISizeConstraint = create("UISizeConstraint", main, {
 		MaxSize = Vector2.new(LAYOUT.WindowMaximumWidth, LAYOUT.WindowMaximumHeight),
 		MinSize = Vector2.new(LAYOUT.WindowMinimumWidth, LAYOUT.WindowMinimumHeight),
@@ -1254,8 +1252,8 @@ function WindowClass:AddPage(options: PageOptions | string): Page
 	if settings.Icon then
 		icon = create("ImageLabel", button, {
 			BackgroundTransparency = 1, Image = settings.Icon, ImageColor3 = self._palette.MutedText,
-			Position = settings.IconPosition or UDim2.fromOffset(9, 7), ScaleType = Enum.ScaleType.Fit,
-			Size = settings.IconSize or UDim2.fromOffset(27, 27), ZIndex = LAYER.Navigation + 4,
+			Position = settings.IconPosition or UDim2.fromOffset(11, 6), ScaleType = Enum.ScaleType.Fit,
+			Size = settings.IconSize or UDim2.fromOffset(23, 23), ZIndex = LAYER.Navigation + 4,
 		})
 	end
 	const pageGroup: CanvasGroup = create("CanvasGroup", self._pagesContainer, {
@@ -2292,6 +2290,20 @@ function SliderClass:SetValue(value: number, emit: boolean?): ()
 	if emit ~= false and changed then invoke(self._callback, clamped) end
 end
 
+local function setDropdownVisual(dropdown: Dropdown, active: boolean, tweenInfo: TweenInfo?): ()
+	const window: Window = dropdown._window
+	const currentTween: TweenInfo = tweenInfo or FAST_TWEEN
+	const backgroundRole: PaletteColor = if active then "SurfaceHover" else "Control"
+	const strokeRole: PaletteColor = if active then "Accent" else "Border"
+	setPaletteRole(window, dropdown._button, "BackgroundColor3", backgroundRole)
+	setPaletteRole(window, dropdown._buttonStroke, "Color", strokeRole)
+	animate(window, dropdown._button, currentTween, { BackgroundColor3 = window._palette[backgroundRole] })
+	animate(window, dropdown._buttonStroke, currentTween, {
+		Color = window._palette[strokeRole],
+		Transparency = if active then 0.15 else 0.45,
+	})
+end
+
 function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	assertCondition(typeof(options.Options) == "table" and #options.Options > 0, "dropdown must have at least one option")
 	assertCondition(typeof(options.Text) == "string" and #options.Text > 0, "dropdown text must be non-empty")
@@ -2319,6 +2331,7 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	const button: TextButton = create("TextButton", container, { AnchorPoint = Vector2.new(1, 0.5), AutoButtonColor = false, BackgroundColor3 = window._palette.Control, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.Gotham), Position = UDim2.new(1, -LAYOUT.ControlRightInset, 0.5, 0), Size = UDim2.fromOffset(fieldWidth, LAYOUT.ControlFieldHeight), Text = "", TextColor3 = window._palette.Text, TextSize = LAYOUT.DropdownOptionTextSize, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = LAYER.Content + 2 })
 	corner(button, 6)
 	setPaletteBinding(window, button, "BackgroundColor3", "Control")
+	setPaletteBinding(window, button, "TextColor3", "Text")
 	const buttonStroke: UIStroke = stroke(button, window._palette, 0.45)
 	padding(button, LAYOUT.DropdownLeftPadding, LAYOUT.DropdownRightPadding, 0, 0)
 	const panelHeight: number = math.min(#options.Options * 24 + 10, 157)
@@ -2327,7 +2340,7 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	stroke(optionsFrame, window._palette, 0.15)
 	padding(optionsFrame, 5, 5, 5, 5)
 	list(optionsFrame, 0)
-	const dropdown: Dropdown = setmetatable({ Instance = container, _button = button, _buttonStroke = buttonStroke, _buttons = {}, _callback = options.Callback, _direction = options.OpenDirection or "Auto", _label = label, _open = false, _options = table.clone(options.Options), _optionsFrame = optionsFrame, _panelHeight = panelHeight, _value = defaultValue, _window = window }, DropdownClass) :: any
+	const dropdown: Dropdown = setmetatable({ Instance = container, _button = button, _buttonStroke = buttonStroke, _buttons = {}, _callback = options.Callback, _direction = options.OpenDirection or "Auto", _hovered = false, _label = label, _open = false, _options = table.clone(options.Options), _optionsFrame = optionsFrame, _panelHeight = panelHeight, _value = defaultValue, _window = window }, DropdownClass) :: any
 	table.insert(window._dropdowns, dropdown)
 	dropdown._resize = function(): ()
 		const updatedWidth: number = dropdownFieldWidth(window, options.Options)
@@ -2362,19 +2375,15 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	end
 	track(window, button.Activated:Connect(function(): () dropdown:SetOpen(not dropdown._open) end))
 	track(window, button.MouseEnter:Connect(function(): ()
+		dropdown._hovered = true
 		if not dropdown._open then
-			setPaletteRole(window, button, "BackgroundColor3", "SurfaceHover")
-			setPaletteRole(window, buttonStroke, "Color", "Accent")
-			animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
-			animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Accent, Transparency = 0.15 })
+			setDropdownVisual(dropdown, true)
 		end
 	end))
 	track(window, button.MouseLeave:Connect(function(): ()
+		dropdown._hovered = false
 		if not dropdown._open then
-			setPaletteRole(window, button, "BackgroundColor3", "Control")
-			setPaletteRole(window, buttonStroke, "Color", "Border")
-			animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.Control })
-			animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Border, Transparency = 0.45 })
+			setDropdownVisual(dropdown, false)
 		end
 	end))
 	track(window, button:GetPropertyChangedSignal("AbsolutePosition"):Connect(function(): () positionDropdown(dropdown) end))
@@ -2396,19 +2405,12 @@ function DropdownClass:SetOpen(open: boolean): ()
 	if open then
 		closeDropdowns(self._window, self)
 		closeColorPickers(self._window)
-		setPaletteRole(self._window, self._button, "BackgroundColor3", "SurfaceHover")
 		self._optionsFrame.Visible = true
 		positionDropdown(self)
-		setPaletteRole(self._window, self._buttonStroke, "Color", "Accent")
-		animate(self._window, self._buttonStroke, FAST_TWEEN, { Color = self._window._palette.Accent, Transparency = 0.15 })
-		animate(self._window, self._button, DROPDOWN_TWEEN, { BackgroundColor3 = self._window._palette.SurfaceHover })
 	else
-		setPaletteRole(self._window, self._button, "BackgroundColor3", "Control")
-		setPaletteRole(self._window, self._buttonStroke, "Color", "Border")
-		animate(self._window, self._buttonStroke, FAST_TWEEN, { Color = self._window._palette.Border, Transparency = 0.45 })
-		animate(self._window, self._button, DROPDOWN_TWEEN, { BackgroundColor3 = self._window._palette.Control })
 		self._optionsFrame.Visible = false
 	end
+	setDropdownVisual(self, open or self._hovered, DROPDOWN_TWEEN)
 end
 
 function DropdownClass:SetValue(value: string, emit: boolean?): ()
