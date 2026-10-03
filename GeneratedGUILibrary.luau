@@ -452,13 +452,13 @@ local function corner(parent: Instance, radius: number | UDim): UICorner
 	return create("UICorner", parent, { CornerRadius = cornerRadius })
 end
 
-local function stroke(parent: Instance, palette: Palette, transparency: number?): UIStroke
+local function stroke(parent: Instance, palette: Palette): UIStroke
 	const result: UIStroke = Instance.new("UIStroke")
 	result.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	result.Color = palette.Border
 	result.LineJoinMode = Enum.LineJoinMode.Round
 	result.Thickness = 1
-	result.Transparency = transparency or 0
+	result.Transparency = 0
 	result:SetAttribute("PaletteColorRole", "Border")
 	result.Parent = parent
 	return result
@@ -987,7 +987,7 @@ function UI.new(options: WindowOptions?): Window
 	const topBarDivider: Frame = create("Frame", main, { BackgroundColor3 = palette.Border, BorderSizePixel = 0, Position = UDim2.fromOffset(0, LAYOUT.TopBarHeight - LAYOUT.TopBarRuleHeight), Size = UDim2.new(1, 0, 0, LAYOUT.TopBarRuleHeight), ZIndex = LAYER.TopBar })
 	topBarDivider:SetAttribute("PaletteColorRole", "Border")
 	const minimize: TextButton = create("TextButton", topBar, { AutoButtonColor = false, BackgroundTransparency = 1, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.Gotham), Position = UDim2.new(1, -LAYOUT.TopBarButtonWidth * 2, 0, 0), Size = UDim2.fromOffset(LAYOUT.TopBarButtonWidth, LAYOUT.TopBarButtonHeight), Text = "−", TextColor3 = palette.MutedText, TextSize = 21, ZIndex = LAYER.TopBar + 2 })
-	const close: TextButton = create("TextButton", topBar, { AutoButtonColor = false, BackgroundTransparency = 1, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.Gotham), Position = UDim2.new(1, -LAYOUT.TopBarButtonWidth, 0, 0), Size = UDim2.fromOffset(LAYOUT.TopBarButtonWidth, LAYOUT.TopBarButtonHeight), Text = "×", TextColor3 = palette.MutedText, TextSize = 17, ZIndex = LAYER.TopBar + 2 })
+	const close: TextButton = create("TextButton", topBar, { AutoButtonColor = false, BackgroundTransparency = 1, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.Gotham), Position = UDim2.new(1, -LAYOUT.TopBarButtonWidth, 0, 0), Size = UDim2.fromOffset(LAYOUT.TopBarButtonWidth, LAYOUT.TopBarButtonHeight), Text = "×", TextColor3 = palette.MutedText, TextSize = 20, ZIndex = LAYER.TopBar + 2 })
 	corner(close, 10)
 	local closeCornerFills: {Frame} = {}
 	for _, fillPosition: UDim2 in {
@@ -1150,6 +1150,16 @@ function UI.new(options: WindowOptions?): Window
 	setPaletteBinding(self, minimize, "TextColor3", "MutedText")
 	setPaletteBinding(self, close, "BackgroundColor3", "Danger")
 	setPaletteBinding(self, close, "TextColor3", "MutedText")
+	track(self, close:GetPropertyChangedSignal("BackgroundColor3"):Connect(function(): ()
+		for _, cornerFill: Frame in closeCornerFills do
+			cornerFill.BackgroundColor3 = close.BackgroundColor3
+		end
+	end))
+	track(self, close:GetPropertyChangedSignal("BackgroundTransparency"):Connect(function(): ()
+		for _, cornerFill: Frame in closeCornerFills do
+			cornerFill.BackgroundTransparency = close.BackgroundTransparency
+		end
+	end))
 	track(self, minimize.Activated:Connect(function(): ()
 		closeDropdowns(self)
 		closeColorPickers(self)
@@ -1212,17 +1222,11 @@ function UI.new(options: WindowOptions?): Window
 		setPaletteRole(self, close, "BackgroundColor3", "Danger")
 		setPaletteRole(self, close, "TextColor3", "Text")
 		animate(self, close, FAST_TWEEN, { BackgroundTransparency = 0, TextColor3 = self._palette.Text })
-		for _, cornerFill: Frame in closeCornerFills do
-			animate(self, cornerFill, FAST_TWEEN, { BackgroundTransparency = 0 })
-		end
 	end))
 	track(self, close.MouseLeave:Connect(function(): ()
 		setPaletteRole(self, close, "BackgroundColor3", "Danger")
 		setPaletteRole(self, close, "TextColor3", "MutedText")
 		animate(self, close, FAST_TWEEN, { BackgroundTransparency = 1, TextColor3 = self._palette.MutedText })
-		for _, cornerFill: Frame in closeCornerFills do
-			animate(self, cornerFill, FAST_TWEEN, { BackgroundTransparency = 1 })
-		end
 	end))
 	local function updateViewport(): ()
 		self._scale.Scale = fittedScale(self)
@@ -1613,7 +1617,7 @@ function PageClass:AddHome(options: HomeOptions?): Frame
 		ZIndex = LAYER.Content + 1,
 	})
 	corner(statusCard, 8)
-	const statusStroke: UIStroke = stroke(statusCard, palette, 0)
+	const statusStroke: UIStroke = stroke(statusCard, palette)
 	const logo: ImageLabel = create("ImageLabel", statusCard, {
 		BackgroundTransparency = 1,
 		Image = settings.Logo or "",
@@ -1726,7 +1730,7 @@ function PageClass:AddSection(options: SectionOptions | string): Section
 	assertCondition(settings.Description == nil or typeof(settings.Description) == "string", "section description must be a string")
 	const root: Frame = create("Frame", self.Instance, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = self._window._palette.Surface, BackgroundTransparency = 0.08, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Section })
 	corner(root, 10)
-	stroke(root, self._window._palette, 0.38)
+	stroke(root, self._window._palette)
 	padding(root, LAYOUT.SectionPadding, LAYOUT.SectionPadding, LAYOUT.SectionPadding, LAYOUT.SectionPadding)
 	const rootLayout: UIListLayout = list(root, LAYOUT.SectionContentGap)
 	const header: Frame = create("Frame", root, { BackgroundTransparency = 1, LayoutOrder = 0, Size = UDim2.new(1, 0, 0, if settings.Description then 44 else 27), ZIndex = LAYER.Section + 1 })
@@ -1914,7 +1918,7 @@ end
 
 function SectionClass:AddSeparator(): Frame
 	breakCards(self)
-	const separator: Frame = create("Frame", self.Instance, { BackgroundColor3 = self._page._window._palette.Border, BackgroundTransparency = 0.38, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 1), ZIndex = LAYER.Content + 1 })
+	const separator: Frame = create("Frame", self.Instance, { BackgroundColor3 = self._page._window._palette.Border, BackgroundTransparency = 0, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 1), ZIndex = LAYER.Content + 1 })
 	setPaletteBinding(self._page._window, separator, "BackgroundColor3", "Border")
 	return separator
 end
@@ -2121,12 +2125,12 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 		_window = window,
 	}, ToggleClass) :: any
 	track(window, trackButton.MouseEnter:Connect(function(): ()
-		setPaletteRole(window, trackButton, "BackgroundColor3", "SurfaceHover")
-		animate(window, trackButton, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
+		setPaletteRole(window, trackButton, "BackgroundColor3", if toggle._value then "Border" else "SurfaceHover")
+		animate(window, trackButton, FAST_TWEEN, { BackgroundColor3 = if toggle._value then window._palette.Border else window._palette.SurfaceHover })
 	end))
 	track(window, trackButton.MouseLeave:Connect(function(): ()
-		setPaletteRole(window, trackButton, "BackgroundColor3", if toggle._value then "SurfaceHover" else "Border")
-		animate(window, trackButton, FAST_TWEEN, { BackgroundColor3 = if toggle._value then window._palette.SurfaceHover else window._palette.Border })
+		setPaletteRole(window, trackButton, "BackgroundColor3", if toggle._value then "Border" else "Accent")
+		animate(window, trackButton, FAST_TWEEN, { BackgroundColor3 = if toggle._value then window._palette.Border else window._palette.Accent })
 	end))
 	if keybindButton then
 		track(window, keybindButton.Activated:Connect(function(): ()
@@ -2209,10 +2213,10 @@ function ToggleClass:SetValue(value: boolean, emit: boolean?): ()
 	assertCondition(typeof(value) == "boolean", "toggle value must be a boolean")
 	if self._value == value and emit ~= false then return end
 	self._value = value
-	setPaletteRole(self._window, self._track, "BackgroundColor3", if value then "SurfaceHover" else "Border")
-	setPaletteRole(self._window, self._knob, "BackgroundColor3", if value then "Text" else "MutedText")
-	animate(self._window, self._track, NORMAL_TWEEN, { BackgroundColor3 = if value then self._window._palette.SurfaceHover else self._window._palette.Border })
-	animate(self._window, self._knob, NORMAL_TWEEN, { BackgroundColor3 = if value then self._window._palette.Text else self._window._palette.MutedText, Position = if value then UDim2.fromOffset(25, 3) else UDim2.fromOffset(3, 3) })
+	setPaletteRole(self._window, self._track, "BackgroundColor3", if value then "Border" else "Accent")
+	setPaletteRole(self._window, self._knob, "BackgroundColor3", if value then "MutedText" else "Text")
+	animate(self._window, self._track, NORMAL_TWEEN, { BackgroundColor3 = if value then self._window._palette.Border else self._window._palette.Accent })
+	animate(self._window, self._knob, NORMAL_TWEEN, { BackgroundColor3 = if value then self._window._palette.MutedText else self._window._palette.Text, Position = if value then UDim2.fromOffset(25, 3) else UDim2.fromOffset(3, 3) })
 	if emit ~= false then invoke(self._callback, value) end
 end
 
@@ -2319,7 +2323,7 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	const panelHeight: number = math.min(#options.Options * 24 + 10, 157)
 	const optionsFrame: ScrollingFrame = create("ScrollingFrame", window._overlay, { AutomaticCanvasSize = Enum.AutomaticSize.Y, BackgroundColor3 = window._palette.Background, BorderSizePixel = 0, CanvasSize = UDim2.new(), ClipsDescendants = true, ScrollBarImageColor3 = window._palette.Accent, ScrollBarThickness = 2, Size = UDim2.fromOffset(fieldWidth, panelHeight), Visible = false, ZIndex = LAYER.Popup })
 	corner(optionsFrame, 6)
-	stroke(optionsFrame, window._palette, 0.15)
+	stroke(optionsFrame, window._palette)
 	padding(optionsFrame, 5, 5, 5, 5)
 	list(optionsFrame, 0)
 	const dropdown: Dropdown = setmetatable({ Instance = container, _button = button, _buttons = {}, _callback = options.Callback, _direction = options.OpenDirection or "Auto", _hovered = false, _label = label, _open = false, _options = table.clone(options.Options), _optionsFrame = optionsFrame, _panelHeight = panelHeight, _value = defaultValue, _window = window }, DropdownClass) :: any
@@ -2482,7 +2486,7 @@ function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 		ZIndex = LAYER.Popup,
 	})
 	corner(panel, 8)
-	stroke(panel, window._palette, 0.1)
+	stroke(panel, window._palette)
 
 	const svFrame: Frame = create("Frame", panel, {
 		BackgroundColor3 = Color3.new(1, 1, 1),
@@ -2566,8 +2570,8 @@ function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 		ZIndex = LAYER.Popup + 5,
 	})
 
-	const hexLabel: TextLabel = textLabel(panel, "HEX", UDim2.fromOffset(28, 24), 11, window._palette.MutedText, LAYER.Popup + 1)
-	hexLabel.Position = UDim2.fromOffset(12, 153)
+	const hexLabel: TextLabel = textLabel(panel, "HEX", UDim2.fromOffset(28, LAYOUT.ColorPickerFieldHeight), 11, window._palette.MutedText, LAYER.Popup + 1)
+	hexLabel.Position = UDim2.fromOffset(12, 152)
 	const hexInput: TextBox = create("TextBox", panel, {
 		BackgroundColor3 = window._palette.Control,
 		BorderSizePixel = 0,
@@ -2583,20 +2587,20 @@ function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 	})
 	corner(hexInput, 5)
 	setPaletteBinding(window, hexInput, "BackgroundColor3", "Control")
-	stroke(hexInput, window._palette, 0.5)
+	stroke(hexInput, window._palette)
 	local rgbInputs: {TextBox} = {}
 	const channelNames: {string} = { "R", "G", "B" }
 	for index: number, channelName: string in channelNames do
 		const left: number = 12 + (index - 1) * 76
-		const channelLabel: TextLabel = textLabel(panel, channelName, UDim2.fromOffset(12, 22), 11, window._palette.MutedText, LAYER.Popup + 1)
-		channelLabel.Position = UDim2.fromOffset(left, 190)
+		const channelLabel: TextLabel = textLabel(panel, channelName, UDim2.fromOffset(24, LAYOUT.ColorPickerFieldHeight), 11, window._palette.MutedText, LAYER.Popup + 1)
+		channelLabel.Position = UDim2.fromOffset(left, 188)
 		const channelInput: TextBox = create("TextBox", panel, {
 			BackgroundColor3 = window._palette.Control,
 			BorderSizePixel = 0,
 			ClearTextOnFocus = false,
 			FontFace = Font.fromEnum(Enum.Font.Gotham),
-			Position = UDim2.fromOffset(left + 14, 188),
-			Size = UDim2.fromOffset(54, LAYOUT.ColorPickerFieldHeight),
+			Position = UDim2.fromOffset(left + 26, 188),
+			Size = UDim2.fromOffset(48, LAYOUT.ColorPickerFieldHeight),
 			Text = "0",
 			TextColor3 = window._palette.Text,
 			TextSize = 12,
@@ -2605,15 +2609,15 @@ function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 		})
 		corner(channelInput, 5)
 		setPaletteBinding(window, channelInput, "BackgroundColor3", "Control")
-		stroke(channelInput, window._palette, 0.5)
+		stroke(channelInput, window._palette)
 		rgbInputs[index] = channelInput
 	end
 	local hsvInputs: {TextBox} = {}
 	const hsvNames: {string} = { "H°", "S%", "V%" }
 	for index: number, channelName: string in hsvNames do
 		const left: number = 12 + (index - 1) * 76
-		const channelLabel: TextLabel = textLabel(panel, channelName, UDim2.fromOffset(24, 22), 10, window._palette.MutedText, LAYER.Popup + 1)
-		channelLabel.Position = UDim2.fromOffset(left, 222)
+		const channelLabel: TextLabel = textLabel(panel, channelName, UDim2.fromOffset(24, LAYOUT.ColorPickerFieldHeight), 10, window._palette.MutedText, LAYER.Popup + 1)
+		channelLabel.Position = UDim2.fromOffset(left, 220)
 		const channelInput: TextBox = create("TextBox", panel, {
 			BackgroundColor3 = window._palette.Control,
 			BorderSizePixel = 0,
@@ -2629,7 +2633,7 @@ function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 		})
 		corner(channelInput, 5)
 		setPaletteBinding(window, channelInput, "BackgroundColor3", "Control")
-		stroke(channelInput, window._palette, 0.5)
+		stroke(channelInput, window._palette)
 		hsvInputs[index] = channelInput
 	end
 	const preview: Frame = create("Frame", panel, {
@@ -2832,7 +2836,7 @@ function SectionClass:AddTextBox(options: TextBoxOptions): TextBoxControl
 	const input: TextBox = create("TextBox", container, { AnchorPoint = Vector2.new(1, 0.5), BackgroundColor3 = window._palette.Control, BorderSizePixel = 0, ClearTextOnFocus = options.ClearOnFocus == true, FontFace = Font.fromEnum(Enum.Font.Gotham), PlaceholderColor3 = window._palette.MutedText, PlaceholderText = options.Placeholder or "Enter text", Position = UDim2.new(1, -LAYOUT.ControlRightInset, 0.5, 0), Size = UDim2.fromOffset(LAYOUT.ControlFieldWidth, LAYOUT.ControlFieldHeight), Text = options.Default or "", TextColor3 = window._palette.Text, TextSize = 13, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = LAYER.Content + 2 })
 	corner(input, 7)
 	setPaletteBinding(window, input, "BackgroundColor3", "Control")
-	stroke(input, window._palette, 0.45)
+	stroke(input, window._palette)
 	padding(input, 9, 9, 0, 0)
 	const textBox: TextBoxControl = setmetatable({ Input = input, Instance = container, _callback = options.Callback, _keyCapture = options.KeyCapture == true, _currentKey = defaultKey }, TextBoxClass) :: any
 	track(window, input.Focused:Connect(function(): ()
