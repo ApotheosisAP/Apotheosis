@@ -505,8 +505,7 @@ end
 local function setFont(instance: Instance, font: Enum.Font): ()
 	if not instance:IsA("TextLabel") and not instance:IsA("TextButton") and not instance:IsA("TextBox") then return end
 	const textObject: TextLabel | TextButton | TextBox = instance :: any
-	const currentFont: Font = textObject.FontFace
-	textObject.FontFace = Font.fromEnum(font, currentFont.Weight, currentFont.Style)
+	textObject.FontFace = Font.fromEnum(font)
 end
 
 local function bindPaletteColors(window: Window, instance: Instance): ()
@@ -920,7 +919,7 @@ function UI.new(options: WindowOptions?): Window
 	const baseScale: number = settings.Scale or 1
 	const size: UDim2 = settings.Size or UDim2.fromOffset(LAYOUT.WindowWidth, LAYOUT.WindowHeight)
 	const position: UDim2 = settings.Position or UDim2.fromScale(0.5, 0.5)
-	const toggleKey: Enum.KeyCode = settings.ToggleKey or Enum.KeyCode.RightShift
+	const toggleKey: Enum.KeyCode = settings.ToggleKey or Enum.KeyCode.Insert
 	assertCondition(typeof(parent) == "Instance", "Parent must be an Instance")
 	assertCondition(isFiniteNumber(baseScale) and baseScale >= 0.5 and baseScale <= 2, "Scale must be between 0.5 and 2")
 	assertCondition(isFiniteUDim2(size), "Size must be a finite UDim2")
@@ -989,8 +988,24 @@ function UI.new(options: WindowOptions?): Window
 	topBarDivider:SetAttribute("PaletteColorRole", "Border")
 	const minimize: TextButton = create("TextButton", topBar, { AutoButtonColor = false, BackgroundTransparency = 1, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.Gotham), Position = UDim2.new(1, -LAYOUT.TopBarButtonWidth * 2, 0, 0), Size = UDim2.fromOffset(LAYOUT.TopBarButtonWidth, LAYOUT.TopBarButtonHeight), Text = "−", TextColor3 = palette.MutedText, TextSize = 21, ZIndex = LAYER.TopBar + 2 })
 	const close: TextButton = create("TextButton", topBar, { AutoButtonColor = false, BackgroundTransparency = 1, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.Gotham), Position = UDim2.new(1, -LAYOUT.TopBarButtonWidth, 0, 0), Size = UDim2.fromOffset(LAYOUT.TopBarButtonWidth, LAYOUT.TopBarButtonHeight), Text = "×", TextColor3 = palette.MutedText, TextSize = 17, ZIndex = LAYER.TopBar + 2 })
-	corner(minimize, 10)
 	corner(close, 10)
+	local closeCornerFills: {Frame} = {}
+	for _, fillPosition: UDim2 in {
+		UDim2.fromOffset(0, 0),
+		UDim2.new(0, 0, 1, -10),
+		UDim2.new(1, -10, 1, -10),
+	} do
+		const cornerFill: Frame = create("Frame", close, {
+			BackgroundColor3 = palette.Danger,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Position = fillPosition,
+			Size = UDim2.fromOffset(10, 10),
+			ZIndex = LAYER.TopBar + 3,
+		})
+		cornerFill:SetAttribute("PaletteColorRole", "Danger")
+		table.insert(closeCornerFills, cornerFill)
+	end
 	const sidebar: Frame = create("Frame", main, { BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, Position = UDim2.fromOffset(0, LAYOUT.TopBarHeight), Size = UDim2.new(0, LAYOUT.SidebarWidth, 1, -LAYOUT.TopBarHeight), ZIndex = LAYER.Sidebar })
 	const pageButtons: ScrollingFrame = create("ScrollingFrame", sidebar, {
 		Active = true,
@@ -1017,7 +1032,7 @@ function UI.new(options: WindowOptions?): Window
 		_colorPickers = {}, _dropdowns = {}, _toggles = {}, _keybindCapture = nil,
 		_expandedPosition = position, _expandedSize = size, _hidden = false, _minimized = false, _overlay = overlay, _pageButtons = pageButtons, _pageCount = 0,
 		_indicator = indicator, _pages = {}, _pagesContainer = pages, _scale = scale, _selectedPage = nil, _sliderDrag = nil,
-		_font = Enum.Font.Code, _fontConnections = {}, _fontUpdating = {}, _palette = palette,
+		_font = Enum.Font.Ubuntu, _fontConnections = {}, _fontUpdating = {}, _palette = palette,
 		_toggleKey = toggleKey, _transparency = settings.Transparency or 0, _sizeConstraint = sizeConstraint,
 		_transitionId = 0, _tweens = {}, _parent = parent, _name = name,
 		_fadeState = {},
@@ -1197,11 +1212,17 @@ function UI.new(options: WindowOptions?): Window
 		setPaletteRole(self, close, "BackgroundColor3", "Danger")
 		setPaletteRole(self, close, "TextColor3", "Text")
 		animate(self, close, FAST_TWEEN, { BackgroundTransparency = 0, TextColor3 = self._palette.Text })
+		for _, cornerFill: Frame in closeCornerFills do
+			animate(self, cornerFill, FAST_TWEEN, { BackgroundTransparency = 0 })
+		end
 	end))
 	track(self, close.MouseLeave:Connect(function(): ()
 		setPaletteRole(self, close, "BackgroundColor3", "Danger")
 		setPaletteRole(self, close, "TextColor3", "MutedText")
 		animate(self, close, FAST_TWEEN, { BackgroundTransparency = 1, TextColor3 = self._palette.MutedText })
+		for _, cornerFill: Frame in closeCornerFills do
+			animate(self, cornerFill, FAST_TWEEN, { BackgroundTransparency = 1 })
+		end
 	end))
 	local function updateViewport(): ()
 		self._scale.Scale = fittedScale(self)
@@ -1659,7 +1680,6 @@ function PageClass:AddHome(options: HomeOptions?): Frame
 			ZIndex = LAYER.Content + 1,
 		})
 		corner(card, 8)
-		const cardStroke: UIStroke = stroke(card, palette, 0)
 		if cardOptions.Icon then
 			create("ImageLabel", card, {
 				BackgroundTransparency = 1,
@@ -1678,15 +1698,11 @@ function PageClass:AddHome(options: HomeOptions?): Frame
 		cardDescription.TextWrapped = true
 		track(window, card.MouseEnter:Connect(function(): ()
 			setPaletteRole(window, card, "BackgroundColor3", "SurfaceHover")
-			setPaletteRole(window, cardStroke, "Color", "Accent")
 			animate(window, card, NORMAL_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
-			animate(window, cardStroke, NORMAL_TWEEN, { Color = window._palette.Accent })
 		end))
 		track(window, card.MouseLeave:Connect(function(): ()
 			setPaletteRole(window, card, "BackgroundColor3", "Surface")
-			setPaletteRole(window, cardStroke, "Color", "Border")
 			animate(window, card, NORMAL_TWEEN, { BackgroundColor3 = window._palette.Surface })
-			animate(window, cardStroke, NORMAL_TWEEN, { Color = window._palette.Border })
 		end))
 		track(window, card.Activated:Connect(function(): () invoke(cardOptions.Callback) end))
 	end
@@ -1731,7 +1747,6 @@ function PageClass:AddSection(options: SectionOptions | string): Section
 		ZIndex = LAYER.Section + 2,
 	})
 	corner(collapseButton, 7)
-	const collapseStroke: UIStroke = stroke(collapseButton, self._window._palette, 0.55)
 	if settings.Description then
 		const description: TextLabel = textLabel(header, settings.Description, UDim2.new(1, -40, 0, 18), 11, self._window._palette.MutedText, LAYER.Section + 2)
 		description.Position = UDim2.fromOffset(0, 24)
@@ -1739,20 +1754,16 @@ function PageClass:AddSection(options: SectionOptions | string): Section
 	const contentClip: Frame = create("Frame", root, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, ClipsDescendants = false, Interactable = true, LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Content })
 	const content: Frame = create("Frame", contentClip, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Content })
 	list(content, LAYOUT.ControlGap)
-	const section: Section = setmetatable({ Instance = content, _cardCount = 0, _cardRow = nil, _collapseButton = collapseButton, _collapseStroke = collapseStroke, _collapsed = false, _contentClip = contentClip, _page = self, _root = root }, SectionClass) :: any
+	const section: Section = setmetatable({ Instance = content, _cardCount = 0, _cardRow = nil, _collapseButton = collapseButton, _collapsed = false, _contentClip = contentClip, _page = self, _root = root }, SectionClass) :: any
 	setPaletteBinding(self._window, collapseButton, "BackgroundColor3", "SurfaceHover")
 	setPaletteBinding(self._window, collapseButton, "TextColor3", "MutedText")
 	track(self._window, collapseButton.MouseEnter:Connect(function(): ()
 		setPaletteRole(self._window, collapseButton, "TextColor3", "Text")
-		setPaletteRole(self._window, collapseStroke, "Color", "Accent")
 		animate(self._window, collapseButton, FAST_TWEEN, { BackgroundTransparency = 0, TextColor3 = self._window._palette.Text })
-		animate(self._window, collapseStroke, FAST_TWEEN, { Color = self._window._palette.Accent, Transparency = 0.15 })
 	end))
 	track(self._window, collapseButton.MouseLeave:Connect(function(): ()
 		setPaletteRole(self._window, collapseButton, "TextColor3", "MutedText")
-		setPaletteRole(self._window, collapseStroke, "Color", "Border")
 		animate(self._window, collapseButton, FAST_TWEEN, { BackgroundTransparency = 0.1, TextColor3 = self._window._palette.MutedText })
-		animate(self._window, collapseStroke, FAST_TWEEN, { Color = self._window._palette.Border, Transparency = 0.55 })
 	end))
 	track(self._window, collapseButton.Activated:Connect(function(): ()
 		section._collapsed = not section._collapsed
@@ -1836,7 +1847,6 @@ function SectionClass:AddPalettePreset(options: PalettePresetOptions): TextButto
 		ZIndex = LAYER.Content + 1,
 	})
 	corner(button, 7)
-	const buttonStroke: UIStroke = stroke(button, window._palette, 0.5)
 	setPaletteBinding(window, button, "BackgroundColor3", "Control")
 	const preview: Frame = create("Frame", button, {
 		BackgroundTransparency = 1,
@@ -1864,15 +1874,11 @@ function SectionClass:AddPalettePreset(options: PalettePresetOptions): TextButto
 	nameLabel.Position = UDim2.fromOffset(8, 24)
 	track(window, button.MouseEnter:Connect(function(): ()
 		setPaletteRole(window, button, "BackgroundColor3", "SurfaceHover")
-		setPaletteRole(window, buttonStroke, "Color", "Accent")
 		animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover, BackgroundTransparency = 0 })
-		animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Accent, Transparency = 0.1 })
 	end))
 	track(window, button.MouseLeave:Connect(function(): ()
 		setPaletteRole(window, button, "BackgroundColor3", "Control")
-		setPaletteRole(window, buttonStroke, "Color", "Border")
 		animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.Control, BackgroundTransparency = 0 })
-		animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Border, Transparency = 0.5 })
 	end))
 	track(window, button.Activated:Connect(function(): () invoke(options.Callback) end))
 	self._palettePresetCount = presetIndex + 1
@@ -1931,7 +1937,6 @@ function SectionClass:AddButton(options: ButtonOptions): TextButton
 	breakCards(self)
 	const button: TextButton = create("TextButton", self.Instance, { AutoButtonColor = false, BackgroundColor3 = window._palette.Control, BackgroundTransparency = 0, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, if options.Description then LAYOUT.ControlDescriptionHeight else LAYOUT.ControlHeight), Text = "", ZIndex = LAYER.Content + 1 })
 	corner(button, 8)
-	const buttonStroke: UIStroke = stroke(button, window._palette, 0.45)
 	setPaletteBinding(window, button, "BackgroundColor3", "Control")
 	if options.Description and #options.Description > 0 then
 		const description: TextLabel = textLabel(button, options.Description, UDim2.new(1, -40, 0, 18), 11, window._palette.MutedText, LAYER.Content + 2)
@@ -1944,18 +1949,14 @@ function SectionClass:AddButton(options: ButtonOptions): TextButton
 	setPaletteBinding(window, arrow, "TextColor3", "MutedText")
 	track(window, button.MouseEnter:Connect(function(): ()
 		setPaletteRole(window, button, "BackgroundColor3", "SurfaceHover")
-		setPaletteRole(window, buttonStroke, "Color", "Accent")
 		setPaletteRole(window, arrow, "TextColor3", "Text")
 		animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
-		animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Accent, Transparency = 0.15 })
 		animate(window, arrow, FAST_TWEEN, { TextColor3 = window._palette.Text })
 	end))
 	track(window, button.MouseLeave:Connect(function(): ()
 		setPaletteRole(window, button, "BackgroundColor3", "Control")
-		setPaletteRole(window, buttonStroke, "Color", "Border")
 		setPaletteRole(window, arrow, "TextColor3", "MutedText")
 		animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.Control })
-		animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Border, Transparency = 0.45 })
 		animate(window, arrow, FAST_TWEEN, { TextColor3 = window._palette.MutedText })
 	end))
 	track(window, button.Activated:Connect(function(): () invoke(options.Callback) end))
@@ -1974,7 +1975,6 @@ function SectionClass:AddCard(options: CardOptions): TextButton
 	const column: number = self._cardCount % 2
 	const card: TextButton = create("TextButton", self._cardRow, { AutoButtonColor = false, BackgroundColor3 = window._palette.Control, BackgroundTransparency = 0, BorderSizePixel = 0, Position = UDim2.new(column * 0.5, if column == 0 then 0 else 4, 0, 0), Size = UDim2.new(0.5, -4, 1, 0), Text = "", ZIndex = LAYER.Content + 1 })
 	corner(card, 8)
-	const cardStroke: UIStroke = stroke(card, window._palette, 0.45)
 	setPaletteBinding(window, card, "BackgroundColor3", "Control")
 	const offset: number = if options.Icon then 55 else 13
 	if options.Icon then
@@ -1991,15 +1991,11 @@ function SectionClass:AddCard(options: CardOptions): TextButton
 	self._cardCount += 1
 	track(window, card.MouseEnter:Connect(function(): ()
 		setPaletteRole(window, card, "BackgroundColor3", "SurfaceHover")
-		setPaletteRole(window, cardStroke, "Color", "Accent")
 		animate(window, card, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
-		animate(window, cardStroke, FAST_TWEEN, { Color = window._palette.Accent, Transparency = 0.1 })
 	end))
 	track(window, card.MouseLeave:Connect(function(): ()
 		setPaletteRole(window, card, "BackgroundColor3", "Control")
-		setPaletteRole(window, cardStroke, "Color", "Border")
 		animate(window, card, FAST_TWEEN, { BackgroundColor3 = window._palette.Control })
-		animate(window, cardStroke, FAST_TWEEN, { Color = window._palette.Border, Transparency = 0.45 })
 	end))
 	track(window, card.Activated:Connect(function(): () invoke(options.Callback) end))
 	return card
@@ -2033,36 +2029,33 @@ function SectionClass:AddKeybind(options: KeybindControlOptions): KeybindControl
 		ZIndex = LAYER.Content + 2,
 	})
 	corner(button, 6)
-	const buttonStroke: UIStroke = stroke(button, window._palette, 0.45)
 	setPaletteBinding(window, button, "BackgroundColor3", "Control")
 	setPaletteBinding(window, button, "TextColor3", "Text")
 	const keybind: KeybindControl = setmetatable({
 		Instance = container,
 		_keybind = defaultKeybind,
 		_default = defaultKeybind,
-	_button = button,
-	_buttonStroke = buttonStroke,
-	_callback = options.Callback,
-	_window = window,
+		_button = button,
+		_hovered = false,
+		_callback = options.Callback,
+		_window = window,
 	}, KeybindControlClass) :: any
 	track(window, button.Activated:Connect(function(): ()
-		beginKeybindCapture(window, keybind, button, buttonStroke)
+		beginKeybindCapture(window, keybind, button)
 	end))
 	track(window, button.MouseEnter:Connect(function(): ()
+		keybind._hovered = true
 		if window._keybindCapture ~= keybind then
 			setPaletteRole(window, button, "BackgroundColor3", "SurfaceHover")
-			setPaletteRole(window, buttonStroke, "Color", "Accent")
 			animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
-			animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Accent, Transparency = 0.15 })
 		end
 	end))
 	track(window, button.MouseLeave:Connect(function(): ()
+		keybind._hovered = false
 		if window._keybindCapture ~= keybind then
 			setPaletteRole(window, button, "BackgroundColor3", "Control")
-			setPaletteRole(window, buttonStroke, "Color", "Border")
 			setPaletteRole(window, button, "TextColor3", "Text")
 			animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.Control, TextColor3 = window._palette.Text })
-			animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Border, Transparency = 0.45 })
 		end
 	end))
 	return keybind
@@ -2096,7 +2089,6 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 	const knob: Frame = create("Frame", trackButton, { BackgroundColor3 = window._palette.MutedText, BorderSizePixel = 0, Position = UDim2.fromOffset(3, 3), Size = UDim2.fromOffset(16, 16), ZIndex = LAYER.Content + 3 })
 	corner(knob, UDim.new(1, 0))
 	local keybindButton: TextButton? = nil
-	local keybindStroke: UIStroke? = nil
 	if keybindEnabled then
 		keybindButton = create("TextButton", container, {
 			AnchorPoint = Vector2.new(1, 0.5),
@@ -2114,7 +2106,6 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 		})
 		corner(keybindButton, 6)
 		setPaletteBinding(window, keybindButton, "TextColor3", "Text")
-		keybindStroke = stroke(keybindButton, window._palette, 0.45)
 		setPaletteBinding(window, keybindButton, "BackgroundColor3", "Control")
 	end
 	const toggle: Toggle = setmetatable({
@@ -2123,39 +2114,37 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 		_keybind = defaultKeybind,
 		_keybindButton = keybindButton,
 		_keybindEnabled = keybindEnabled,
-		_keybindStroke = keybindStroke,
+		_keybindHovered = false,
 		_knob = knob,
 		_track = trackButton,
 		_value = false,
 		_window = window,
 	}, ToggleClass) :: any
 	track(window, trackButton.MouseEnter:Connect(function(): ()
-		setPaletteRole(window, trackButton, "BackgroundColor3", if toggle._value then "Accent" else "SurfaceHover")
-		animate(window, trackButton, FAST_TWEEN, { BackgroundColor3 = if toggle._value then window._palette.Accent else window._palette.SurfaceHover })
+		setPaletteRole(window, trackButton, "BackgroundColor3", "SurfaceHover")
+		animate(window, trackButton, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
 	end))
 	track(window, trackButton.MouseLeave:Connect(function(): ()
-		setPaletteRole(window, trackButton, "BackgroundColor3", if toggle._value then "Accent" else "Border")
-		animate(window, trackButton, FAST_TWEEN, { BackgroundColor3 = if toggle._value then window._palette.Accent else window._palette.Border })
+		setPaletteRole(window, trackButton, "BackgroundColor3", if toggle._value then "SurfaceHover" else "Border")
+		animate(window, trackButton, FAST_TWEEN, { BackgroundColor3 = if toggle._value then window._palette.SurfaceHover else window._palette.Border })
 	end))
-	if keybindButton and keybindStroke then
+	if keybindButton then
 		track(window, keybindButton.Activated:Connect(function(): ()
-			beginKeybindCapture(window, toggle, keybindButton, keybindStroke)
+			beginKeybindCapture(window, toggle, keybindButton)
 		end))
 		track(window, keybindButton.MouseEnter:Connect(function(): ()
+			toggle._keybindHovered = true
 			if window._keybindCapture ~= toggle then
 				setPaletteRole(window, keybindButton, "BackgroundColor3", "SurfaceHover")
-				setPaletteRole(window, keybindStroke, "Color", "Accent")
 				animate(window, keybindButton, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
-				animate(window, keybindStroke, FAST_TWEEN, { Color = window._palette.Accent, Transparency = 0.15 })
 			end
 		end))
 		track(window, keybindButton.MouseLeave:Connect(function(): ()
+			toggle._keybindHovered = false
 			if window._keybindCapture ~= toggle then
 				setPaletteRole(window, keybindButton, "BackgroundColor3", "Control")
-				setPaletteRole(window, keybindStroke, "Color", "Border")
 				setPaletteRole(window, keybindButton, "TextColor3", "Text")
 				animate(window, keybindButton, FAST_TWEEN, { BackgroundColor3 = window._palette.Control, TextColor3 = window._palette.Text })
-				animate(window, keybindStroke, FAST_TWEEN, { Color = window._palette.Border, Transparency = 0.45 })
 			end
 		end))
 	end
@@ -2182,14 +2171,13 @@ function ToggleClass:SetKeybind(keyCode: Enum.KeyCode?): ()
 	self._keybind = keyCode
 	if self._window._keybindCapture == self then self._window._keybindCapture = nil end
 	const button: TextButton? = self._keybindButton
-	const buttonStroke: UIStroke? = self._keybindStroke
 	if button then
 		button.Text = keybindText(keyCode)
 		setPaletteBinding(self._window, button, "TextColor3", "Text")
-		setPaletteRole(self._window, button, "BackgroundColor3", "Control")
-		animate(self._window, button, FAST_TWEEN, { BackgroundColor3 = self._window._palette.Control, TextColor3 = self._window._palette.Text })
+		const backgroundRole: PaletteColor = if self._keybindHovered then "SurfaceHover" else "Control"
+		setPaletteRole(self._window, button, "BackgroundColor3", backgroundRole)
+		animate(self._window, button, FAST_TWEEN, { BackgroundColor3 = self._window._palette[backgroundRole], TextColor3 = self._window._palette.Text })
 	end
-	if buttonStroke then animate(self._window, buttonStroke, FAST_TWEEN, { Color = self._window._palette.Border, Transparency = 0.45 }) end
 end
 
 function KeybindControlClass:GetValue(): Enum.KeyCode
@@ -2211,10 +2199,9 @@ function KeybindControlClass:SetKeybind(keyCode: Enum.KeyCode?): ()
 	if self._window._keybindCapture == self then self._window._keybindCapture = nil end
 	self._button.Text = keybindText(updatedKeybind)
 	setPaletteBinding(self._window, self._button, "TextColor3", "Text")
-	setPaletteRole(self._window, self._button, "BackgroundColor3", "Control")
-	setPaletteRole(self._window, self._buttonStroke, "Color", "Border")
-	animate(self._window, self._button, FAST_TWEEN, { BackgroundColor3 = self._window._palette.Control, TextColor3 = self._window._palette.Text })
-	animate(self._window, self._buttonStroke, FAST_TWEEN, { Color = self._window._palette.Border, Transparency = 0.45 })
+	const backgroundRole: PaletteColor = if self._hovered then "SurfaceHover" else "Control"
+	setPaletteRole(self._window, self._button, "BackgroundColor3", backgroundRole)
+	animate(self._window, self._button, FAST_TWEEN, { BackgroundColor3 = self._window._palette[backgroundRole], TextColor3 = self._window._palette.Text })
 	if changed then invoke(self._callback, updatedKeybind) end
 end
 
@@ -2222,9 +2209,9 @@ function ToggleClass:SetValue(value: boolean, emit: boolean?): ()
 	assertCondition(typeof(value) == "boolean", "toggle value must be a boolean")
 	if self._value == value and emit ~= false then return end
 	self._value = value
-	setPaletteRole(self._window, self._track, "BackgroundColor3", if value then "Accent" else "Border")
+	setPaletteRole(self._window, self._track, "BackgroundColor3", if value then "SurfaceHover" else "Border")
 	setPaletteRole(self._window, self._knob, "BackgroundColor3", if value then "Text" else "MutedText")
-	animate(self._window, self._track, NORMAL_TWEEN, { BackgroundColor3 = if value then self._window._palette.Accent else self._window._palette.Border })
+	animate(self._window, self._track, NORMAL_TWEEN, { BackgroundColor3 = if value then self._window._palette.SurfaceHover else self._window._palette.Border })
 	animate(self._window, self._knob, NORMAL_TWEEN, { BackgroundColor3 = if value then self._window._palette.Text else self._window._palette.MutedText, Position = if value then UDim2.fromOffset(25, 3) else UDim2.fromOffset(3, 3) })
 	if emit ~= false then invoke(self._callback, value) end
 end
@@ -2295,15 +2282,9 @@ end
 local function setDropdownVisual(dropdown: Dropdown, active: boolean, hovered: boolean, tweenInfo: TweenInfo?): ()
 	const window: Window = dropdown._window
 	const currentTween: TweenInfo = tweenInfo or FAST_TWEEN
-	const backgroundRole: PaletteColor = if active then "Accent" else if hovered then "SurfaceHover" else "Control"
-	const strokeRole: PaletteColor = if active or hovered then "Accent" else "Border"
+	const backgroundRole: PaletteColor = if active or hovered then "SurfaceHover" else "Control"
 	setPaletteRole(window, dropdown._button, "BackgroundColor3", backgroundRole)
-	setPaletteRole(window, dropdown._buttonStroke, "Color", strokeRole)
 	animate(window, dropdown._button, currentTween, { BackgroundColor3 = window._palette[backgroundRole] })
-	animate(window, dropdown._buttonStroke, currentTween, {
-		Color = window._palette[strokeRole],
-		Transparency = if active or hovered then 0.15 else 0.45,
-	})
 end
 
 function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
@@ -2334,7 +2315,6 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	corner(button, 6)
 	setPaletteBinding(window, button, "BackgroundColor3", "Control")
 	setPaletteBinding(window, button, "TextColor3", "Text")
-	const buttonStroke: UIStroke = stroke(button, window._palette, 0.45)
 	padding(button, LAYOUT.DropdownLeftPadding, LAYOUT.DropdownRightPadding, 0, 0)
 	const panelHeight: number = math.min(#options.Options * 24 + 10, 157)
 	const optionsFrame: ScrollingFrame = create("ScrollingFrame", window._overlay, { AutomaticCanvasSize = Enum.AutomaticSize.Y, BackgroundColor3 = window._palette.Background, BorderSizePixel = 0, CanvasSize = UDim2.new(), ClipsDescendants = true, ScrollBarImageColor3 = window._palette.Accent, ScrollBarThickness = 2, Size = UDim2.fromOffset(fieldWidth, panelHeight), Visible = false, ZIndex = LAYER.Popup })
@@ -2342,7 +2322,7 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	stroke(optionsFrame, window._palette, 0.15)
 	padding(optionsFrame, 5, 5, 5, 5)
 	list(optionsFrame, 0)
-	const dropdown: Dropdown = setmetatable({ Instance = container, _button = button, _buttonStroke = buttonStroke, _buttons = {}, _callback = options.Callback, _direction = options.OpenDirection or "Auto", _hovered = false, _label = label, _open = false, _options = table.clone(options.Options), _optionsFrame = optionsFrame, _panelHeight = panelHeight, _value = defaultValue, _window = window }, DropdownClass) :: any
+	const dropdown: Dropdown = setmetatable({ Instance = container, _button = button, _buttons = {}, _callback = options.Callback, _direction = options.OpenDirection or "Auto", _hovered = false, _label = label, _open = false, _options = table.clone(options.Options), _optionsFrame = optionsFrame, _panelHeight = panelHeight, _value = defaultValue, _window = window }, DropdownClass) :: any
 	table.insert(window._dropdowns, dropdown)
 	dropdown._resize = function(): ()
 		const updatedWidth: number = dropdownFieldWidth(window, options.Options)
@@ -2423,7 +2403,7 @@ function DropdownClass:SetValue(value: string, emit: boolean?): ()
 	self._button.Text = value
 	for option: string, optionButton: TextButton in self._buttons do
 		const selected: boolean = option == value
-		const backgroundRole: PaletteColor = if selected then "Accent" else "SurfaceHover"
+		const backgroundRole: PaletteColor = "SurfaceHover"
 		setPaletteRole(self._window, optionButton, "BackgroundColor3", backgroundRole)
 		optionButton.BackgroundColor3 = self._window._palette[backgroundRole]
 		optionButton.BackgroundTransparency = if selected then 0 else 1
@@ -2481,7 +2461,6 @@ function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 	})
 	corner(button, 6)
 	setPaletteBinding(window, button, "BackgroundColor3", "Control")
-	const buttonStroke: UIStroke = stroke(button, window._palette, 0.45)
 	const swatch: Frame = create("Frame", button, {
 		BackgroundColor3 = options.Default,
 		BorderSizePixel = 0,
@@ -2678,13 +2657,13 @@ function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 	local picker: ColorPicker = setmetatable({
 		Instance = container,
 		_button = button,
-		_buttonStroke = buttonStroke,
 		_callback = options.Callback,
 		_color = options.Default,
 		_hexInput = hexInput,
 		_hue = 0,
 		_hueFrame = hueFrame,
 		_hueMarker = hueMarker,
+		_hovered = false,
 		_open = false,
 		_panel = panel,
 		_preview = preview,
@@ -2759,19 +2738,17 @@ function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 	table.insert(window._colorPickers, picker)
 	track(window, button.Activated:Connect(function(): () picker:SetOpen(not picker._open) end))
 	track(window, button.MouseEnter:Connect(function(): ()
+		picker._hovered = true
 		if not picker._open then
 			setPaletteRole(window, button, "BackgroundColor3", "SurfaceHover")
-			setPaletteRole(window, buttonStroke, "Color", "Accent")
 			animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.SurfaceHover })
-			animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Accent, Transparency = 0.15 })
 		end
 	end))
 	track(window, button.MouseLeave:Connect(function(): ()
+		picker._hovered = false
 		if not picker._open then
 			setPaletteRole(window, button, "BackgroundColor3", "Control")
-			setPaletteRole(window, buttonStroke, "Color", "Border")
 			animate(window, button, FAST_TWEEN, { BackgroundColor3 = window._palette.Control })
-			animate(window, buttonStroke, FAST_TWEEN, { Color = window._palette.Border, Transparency = 0.45 })
 		end
 	end))
 	track(window, button:GetPropertyChangedSignal("AbsolutePosition"):Connect(function(): () positionColorPicker(picker) end))
@@ -2792,19 +2769,14 @@ function ColorPickerClass:SetOpen(open: boolean): ()
 	if open then
 		closeDropdowns(self._window, nil)
 		closeColorPickers(self._window, self)
-		setPaletteRole(self._window, self._button, "BackgroundColor3", "SurfaceHover")
-		setPaletteRole(self._window, self._buttonStroke, "Color", "Accent")
-		animate(self._window, self._button, FAST_TWEEN, { BackgroundColor3 = self._window._palette.SurfaceHover })
-		animate(self._window, self._buttonStroke, FAST_TWEEN, { Color = self._window._palette.Accent, Transparency = 0.15 })
 		positionColorPicker(self)
 		self._panel.Visible = true
 	else
-		setPaletteRole(self._window, self._button, "BackgroundColor3", "Control")
-		setPaletteRole(self._window, self._buttonStroke, "Color", "Border")
-		animate(self._window, self._button, FAST_TWEEN, { BackgroundColor3 = self._window._palette.Control })
-		animate(self._window, self._buttonStroke, FAST_TWEEN, { Color = self._window._palette.Border, Transparency = 0.45 })
 		self._panel.Visible = false
 	end
+	const backgroundRole: PaletteColor = if open or self._hovered then "SurfaceHover" else "Control"
+	setPaletteRole(self._window, self._button, "BackgroundColor3", backgroundRole)
+	animate(self._window, self._button, FAST_TWEEN, { BackgroundColor3 = self._window._palette[backgroundRole] })
 end
 
 function ColorPickerClass:SetValue(value: Color3, emit: boolean?): ()
