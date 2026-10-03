@@ -204,6 +204,8 @@ const DEFAULT_PALETTE: Palette = table.freeze({
 	Text = Color3.fromRGB(190, 205, 230),
 	MutedText = Color3.fromRGB(143, 150, 163),
 })
+const GUI_OWNER_ATTRIBUTE: string = "UILibraryOwner"
+const GUI_OWNER_VALUE: string = "ApotheosisUILibrary"
 const PALETTE_COLORS: {PaletteColorInfo} = table.freeze({
 	{ Name = "Background", Label = "Background" },
 	{ Name = "Surface", Label = "Surface" },
@@ -691,12 +693,47 @@ end
 local function keybindText(keyCode: Enum.KeyCode?): string
 	if not keyCode then return "None" end
 	const names: {[string]: string} = {
-		LeftAlt = "LAlt",
-		LeftControl = "LCtrl",
-		LeftShift = "LShift",
-		RightAlt = "RAlt",
-		RightControl = "RCtrl",
-		RightShift = "RShift",
+		Backquote = "`",
+		Backspace = "⌫",
+		Comma = ",",
+		Delete = "⌦",
+		Down = "↓",
+		End = "↘",
+		Equals = "=",
+		Home = "↖",
+		Insert = "Ins",
+		KeypadEnter = "↵",
+		Left = "←",
+		LeftAlt = "⌥",
+		LeftBracket = "[",
+		LeftControl = "⌃",
+		LeftShift = "⇧",
+		Minus = "-",
+		One = "1",
+		PageDown = "⇟",
+		PageUp = "⇞",
+		Period = ".",
+		Quote = "'",
+		Right = "→",
+		RightAlt = "⌥",
+		RightBracket = "]",
+		RightControl = "⌃",
+		RightShift = "⇧",
+		Semicolon = ";",
+		Seven = "7",
+		Slash = "/",
+		Space = "␠",
+		Tab = "⇥",
+		Three = "3",
+		Two = "2",
+		Up = "↑",
+		Zero = "0",
+		Four = "4",
+		Five = "5",
+		Six = "6",
+		Eight = "8",
+		Nine = "9",
+		BackSlash = "\\",
 	}
 	return names[keyCode.Name] or keyCode.Name
 end
@@ -721,19 +758,19 @@ local function beginKeybindCapture(window: Window, target: KeybindCapture, butto
 	end
 end
 
+local function expandedWindowSize(window: Window, scale: number, viewport: Vector2): Vector2
+	return Vector2.new(
+		math.clamp(window._expandedSize.X.Scale * viewport.X + window._expandedSize.X.Offset, LAYOUT.WindowMinimumWidth, LAYOUT.WindowMaximumWidth),
+		math.clamp(window._expandedSize.Y.Scale * viewport.Y + window._expandedSize.Y.Offset, LAYOUT.WindowMinimumHeight, LAYOUT.WindowMaximumHeight)
+	) * scale
+end
+
 local function fittedScale(window: Window): number
 	local viewport: Vector2 = window.Root.AbsoluteSize
 	if viewport.X <= 0 or viewport.Y <= 0 then
 		viewport = viewportSize()
 	end
-	const current: number = math.max(window._scale.Scale, 0.01)
-	local nominal: Vector2 = window.MainFrame.AbsoluteSize / current
-	if window._minimized then
-		nominal = Vector2.new(
-			math.clamp(window._expandedSize.X.Scale * viewport.X + window._expandedSize.X.Offset, LAYOUT.WindowMinimumWidth, LAYOUT.WindowMaximumWidth),
-			math.clamp(window._expandedSize.Y.Scale * viewport.Y + window._expandedSize.Y.Offset, LAYOUT.WindowMinimumHeight, LAYOUT.WindowMaximumHeight)
-		)
-	end
+	const nominal: Vector2 = expandedWindowSize(window, 1, viewport)
 	const fitRatio: number = math.min(
 		1,
 		math.max(0, (viewport.X - 32) / math.max(nominal.X, 1)),
@@ -742,12 +779,12 @@ local function fittedScale(window: Window): number
 	return math.clamp(window._baseScale * fitRatio, 0.5, window._baseScale)
 end
 
-local function clampWindowPosition(window: Window, desired: UDim2): UDim2
+local function clampWindowPosition(window: Window, desired: UDim2, sizeOverride: Vector2?): UDim2
 	local viewport: Vector2 = window.Root.AbsoluteSize
 	if viewport.X <= 0 or viewport.Y <= 0 then
 		viewport = viewportSize()
 	end
-	const size: Vector2 = window.MainFrame.AbsoluteSize
+	const size: Vector2 = sizeOverride or window.MainFrame.AbsoluteSize
 	const halfWidth: number = math.min(size.X * 0.5, math.max(viewport.X * 0.5 - 8, 0))
 	const halfHeight: number = math.min(size.Y * 0.5, math.max(viewport.Y * 0.5 - 8, 0))
 	const desiredX: number = desired.X.Scale * viewport.X + desired.X.Offset
@@ -915,6 +952,11 @@ function UI.new(options: WindowOptions?): Window
 	if previousWindow then
 		previousWindow:Destroy()
 	elseif previousGui then
+		assertCondition(
+			previousGui:IsA("ScreenGui")
+				and previousGui:GetAttribute(GUI_OWNER_ATTRIBUTE) == GUI_OWNER_VALUE,
+			`CoreGui already contains an unrelated instance named '{name}'`
+		)
 		previousGui:Destroy()
 	end
 	const palette: Palette = table.clone(DEFAULT_PALETTE)
@@ -931,8 +973,9 @@ function UI.new(options: WindowOptions?): Window
 		Name = name,
 		ResetOnSpawn = false,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-		Parent = parent,
 	})
+	root:SetAttribute(GUI_OWNER_ATTRIBUTE, GUI_OWNER_VALUE)
+	root.Parent = parent
 	const main: Frame = create("Frame", root, {
 		Active = true,
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -958,7 +1001,7 @@ function UI.new(options: WindowOptions?): Window
 		create("ImageLabel", topBar, { BackgroundTransparency = 1, Image = settings.Logo, Position = UDim2.fromOffset(LAYOUT.TopBarInset, 3), ScaleType = Enum.ScaleType.Fit, Size = UDim2.fromOffset(LAYOUT.TopBarLogoSize, LAYOUT.TopBarLogoSize), ZIndex = LAYER.TopBar + 2 })
 	end
 	const titleOffset: number = if settings.Logo then 58 else 16
-	const title: TextLabel = textLabel(topBar, settings.Title or "Window", UDim2.new(1, -titleOffset - LAYOUT.TopBarTitleRightInset, 0, 35), 30, palette.Text, LAYER.TopBar + 2)
+	const title: TextLabel = textLabel(topBar, settings.Title or "Window", UDim2.new(1, -titleOffset - LAYOUT.TopBarTitleRightInset, 0, 35), 24, palette.Text, LAYER.TopBar + 2)
 	title.Position = UDim2.fromOffset(titleOffset, 3)
 	const topBarDivider: Frame = create("Frame", main, { BackgroundColor3 = palette.Border, BorderSizePixel = 0, Position = UDim2.fromOffset(0, LAYOUT.TopBarHeight - LAYOUT.TopBarRuleHeight), Size = UDim2.new(1, 0, 0, LAYOUT.TopBarRuleHeight), ZIndex = LAYER.TopBar })
 	topBarDivider:SetAttribute("PaletteColorRole", "Border")
@@ -966,11 +1009,12 @@ function UI.new(options: WindowOptions?): Window
 	const close: TextButton = create("TextButton", topBar, { AutoButtonColor = false, BackgroundTransparency = 1, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.GothamBold), Position = UDim2.new(1, -LAYOUT.TopBarCloseRightInset - LAYOUT.TopBarButtonWidth, 0, LAYOUT.TopBarButtonTop), Size = UDim2.fromOffset(LAYOUT.TopBarButtonWidth, LAYOUT.TopBarButtonHeight), Text = "X", TextColor3 = palette.MutedText, TextSize = 15, ZIndex = LAYER.TopBar + 2 })
 	corner(minimize, 6)
 	corner(close, 6)
-	const sidebar: Frame = create("Frame", main, { BackgroundColor3 = palette.Background, BorderSizePixel = 0, ClipsDescendants = true, Position = UDim2.fromOffset(0, LAYOUT.TopBarHeight), Size = UDim2.new(0, LAYOUT.SidebarWidth, 1, -LAYOUT.TopBarHeight), ZIndex = LAYER.Sidebar })
+	const sidebar: Frame = create("Frame", main, { BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, Position = UDim2.fromOffset(0, LAYOUT.TopBarHeight), Size = UDim2.new(0, LAYOUT.SidebarWidth, 1, -LAYOUT.TopBarHeight), ZIndex = LAYER.Sidebar })
 	const pageButtons: ScrollingFrame = create("ScrollingFrame", sidebar, {
 		Active = true,
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		BackgroundTransparency = 1,
+		BackgroundColor3 = palette.Background,
+		BackgroundTransparency = 0,
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(),
 		ClipsDescendants = true,
@@ -991,7 +1035,7 @@ function UI.new(options: WindowOptions?): Window
 		_colorPickers = {}, _dropdowns = {}, _toggles = {}, _keybindCapture = nil,
 		_expandedPosition = position, _expandedSize = size, _hidden = false, _minimized = false, _overlay = overlay, _pageButtons = pageButtons, _pageCount = 0,
 		_indicator = indicator, _pages = {}, _pagesContainer = pages, _scale = scale, _selectedPage = nil, _sliderDrag = nil,
-		_font = Enum.Font.Gotham, _fontConnections = {}, _fontUpdating = {}, _palette = palette,
+		_font = Enum.Font.Code, _fontConnections = {}, _fontUpdating = {}, _palette = palette,
 		_toggleKey = toggleKey, _transparency = settings.Transparency or 0, _sizeConstraint = sizeConstraint,
 		_transitionId = 0, _tweens = {}, _parent = parent, _name = name,
 		_fadeState = {},
@@ -1002,6 +1046,7 @@ function UI.new(options: WindowOptions?): Window
 		bindTransparency(self, instance)
 	end))
 	for _, instance: Instance in main:GetDescendants() do
+		applyWindowFont(self, instance)
 		bindPaletteColors(self, instance)
 		bindTransparency(self, instance)
 	end
@@ -1430,10 +1475,6 @@ end
 function WindowClass:SetPaletteColor(name: PaletteColor, color: Color3): ()
 	assertCondition(self._palette[name] ~= nil, `unknown palette color '{name}'`)
 	assertCondition(typeof(color) == "Color3", "palette color must be a Color3")
-	for _, instance: Instance in self.MainFrame:GetDescendants() do
-		bindPaletteColors(self, instance)
-	end
-	bindPaletteColors(self, self.MainFrame)
 	self._palette[name] = color
 	for instance: Instance, bindings: {[string]: PaletteColor} in self._colorBindings do
 		if not instance.Parent then
@@ -1457,7 +1498,17 @@ function WindowClass:SetPalette(palette: Palette): ()
 		assertCondition(typeof(palette[paletteColor.Name]) == "Color3", `palette is missing '{paletteColor.Name}'`)
 	end
 	for _, paletteColor: PaletteColorInfo in PALETTE_COLORS do
-		self:SetPaletteColor(paletteColor.Name, palette[paletteColor.Name])
+		self._palette[paletteColor.Name] = palette[paletteColor.Name]
+	end
+	for instance: Instance, bindings: {[string]: PaletteColor} in self._colorBindings do
+		if not instance.Parent then
+			self._colorBindings[instance] = nil
+			continue
+		end
+		const target: any = instance
+		for propertyName: string, role: PaletteColor in bindings do
+			target[propertyName] = self._palette[role]
+		end
 	end
 end
 
@@ -1698,7 +1749,7 @@ function PageClass:AddSection(options: SectionOptions | string): Section
 		const description: TextLabel = textLabel(header, settings.Description, UDim2.new(1, -40, 0, 18), 11, self._window._palette.MutedText, LAYER.Section + 2)
 		description.Position = UDim2.fromOffset(0, 24)
 	end
-	const contentClip: Frame = create("Frame", root, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, ClipsDescendants = true, Interactable = true, LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Content })
+	const contentClip: Frame = create("Frame", root, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, ClipsDescendants = false, Interactable = true, LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Content })
 	const content: Frame = create("Frame", contentClip, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Content })
 	list(content, LAYOUT.ControlGap)
 	const section: Section = setmetatable({ Instance = content, _cardCount = 0, _cardRow = nil, _collapseButton = collapseButton, _collapseStroke = collapseStroke, _collapsed = false, _contentClip = contentClip, _page = self, _root = root }, SectionClass) :: any
