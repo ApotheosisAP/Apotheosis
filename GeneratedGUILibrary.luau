@@ -2207,10 +2207,7 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 	toggle:SetValue(options.Default == true, false)
 	track(window, trackButton.Activated:Connect(function(): () toggle:SetValue(not toggle._value, true) end))
 	if options.Hint and #options.Hint > 0 then
-		const tt = tooltip(window, options.Hint)
-		track(window, trackButton.MouseEnter:Connect(tt.Enter))
-		track(window, trackButton.MouseLeave:Connect(tt.Leave))
-		track(window, trackButton.MouseMoved:Connect(tt.Move))
+		tooltip(window, trackButton, options.Hint)
 	end
 	return toggle
 end
@@ -2325,9 +2322,7 @@ function SectionClass:AddSlider(options: SliderOptions): Slider
 	end))
 	slider:SetValue(options.Default or options.Minimum, false)
 	if options.Hint and #options.Hint > 0 then
-		const tt = tooltip(window, container, options.Hint)
-		track(window, dragArea.MouseEnter:Connect(tt.Enter))
-		track(window, dragArea.MouseLeave:Connect(tt.Leave))
+		tooltip(window, dragArea, options.Hint)
 	end
 	return slider
 end
@@ -2437,9 +2432,7 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	dropdown._resize()
 	dropdown:SetValue(defaultValue, false)
 	if options.Hint and #options.Hint > 0 then
-		const tt = tooltip(window, container, options.Hint)
-		track(window, button.MouseEnter:Connect(tt.Enter))
-		track(window, button.MouseLeave:Connect(tt.Leave))
+		tooltip(window, button, options.Hint)
 	end
 	return dropdown
 end
@@ -2829,9 +2822,7 @@ function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 	track(window, self._page.Instance:GetPropertyChangedSignal("CanvasPosition"):Connect(function(): () positionColorPicker(picker) end))
 	picker:SetValue(options.Default, false)
 	if options.Hint and #options.Hint > 0 then
-		const tt = tooltip(window, container, options.Hint)
-		track(window, button.MouseEnter:Connect(tt.Enter))
-		track(window, button.MouseLeave:Connect(tt.Leave))
+		tooltip(window, button, options.Hint)
 	end
 	return picker
 end
@@ -2950,7 +2941,7 @@ function SectionClass:AddTextBox(options: TextBoxOptions): TextBoxControl
 		end))
 	end
 	if options.Hint and #options.Hint > 0 then
-		tooltip(window, container, options.Hint)
+		tooltip(window, input, options.Hint)
 	end
 	return textBox
 end
