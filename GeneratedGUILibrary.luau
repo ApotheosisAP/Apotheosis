@@ -37,7 +37,7 @@ export type PageOptions = {
 	IconSize: UDim2?,
 	ButtonPosition: UDim2?,
 }
-export type SectionOptions = {Name: string, Description: string?}
+export type SectionOptions = {Name: string}
 export type LabelOptions = {Text: string, Color: Color3?, Size: number?}
 export type Label = {
 	GetColor: (self: Label) -> Color3,
@@ -49,7 +49,7 @@ export type Label = {
 	Instance: TextLabel,
 	[string]: any,
 }
-export type ButtonOptions = {Description: string?, Callback: (() -> ())?}
+export type ButtonOptions = {Hint: string?, Callback: (() -> ())?}
 export type KeybindOptions = {Enabled: boolean?, Default: Enum.KeyCode?}
 export type KeybindControlOptions = {Text: string, Default: Enum.KeyCode?, Callback: ((Enum.KeyCode) -> ())?}
 export type KeybindControl = {
@@ -59,18 +59,19 @@ export type KeybindControl = {
 	Instance: Frame,
 	[string]: any,
 }
-export type ToggleOptions = {Text: string, Description: string?, Default: boolean?, Keybind: KeybindOptions?, Callback: ((boolean) -> ())?}
+export type ToggleOptions = {Text: string, Hint: string?, Default: boolean?, Keybind: KeybindOptions?, Callback: ((boolean) -> ())?}
 export type SliderOptions = {
 	Minimum: number,
 	Maximum: number,
 	Default: number?,
 	Step: number?,
 	Suffix: string?,
+	Hint: string?,
 	Callback: ((number) -> ())?,
 }
 export type DropdownOptions = {
 	Text: string,
-	Description: string?,
+	Hint: string?,
 	Options: {string},
 	Default: string?,
 	OpenDirection: ("Auto" | "Up" | "Down")?,
@@ -78,12 +79,12 @@ export type DropdownOptions = {
 }
 export type ColorPickerOptions = {
 	Text: string,
-	Description: string?,
+	Hint: string?,
 	Default: Color3,
 	Callback: ((Color3) -> ())?,
 }
 export type TextBoxOptions = {
-	Description: string?,
+	Hint: string?,
 	Default: string?,
 	Placeholder: string?,
 	ClearOnFocus: boolean?,
@@ -254,7 +255,6 @@ const LAYOUT = table.freeze({
 	SectionContentGap = 10,
 	ControlGap = 6,
 	ControlHeight = 42,
-	ControlDescriptionHeight = 52,
 	ControlRightInset = 8,
 	ControlFieldWidth = 184,
 	ControlFieldHeight = 30,
@@ -279,6 +279,7 @@ const LAYOUT = table.freeze({
 	ColorPickerButtonWidth = 120,
 	ColorPickerFieldHeight = 24,
 	LabelHeight = 22,
+	TooltipHeight = 30,
 	HomeInset = 12,
 	HomeHeight = 325,
 	HomeStatusTop = 44,
@@ -729,6 +730,69 @@ local function keybindText(keyCode: Enum.KeyCode?): string
 	return names[keyCode.Name] or keyCode.Name
 end
 
+local function tooltip(window: Window, parent: Instance, text: string): ()
+	const container: Frame = create("Frame", window._overlay, {
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundColor3 = window._palette.Background,
+		BorderSizePixel = 0,
+		Size = UDim2.new(0, 0, 0, LAYOUT.TooltipHeight),
+		Visible = false,
+		ZIndex = LAYER.Popup + 1,
+	})
+	corner(container, 6)
+	const tooltipStroke: UIStroke = stroke(container, window._palette)
+	setPaletteBinding(window, tooltipStroke, "Color", "Border")
+	padding(container, 8, 8, 0, 0)
+	const label: TextLabel = textLabel(container, text, UDim2.new(0, 0, 1, 0), 12, window._palette.Text, LAYER.Popup + 2)
+	label.AutomaticSize = Enum.AutomaticSize.X
+	label.TextWrapped = true
+
+	local showThread: thread? = nil
+	local hideThread: thread? = nil
+
+	local function hide(): ()
+		if showThread then
+			task_cancel(showThread)
+			showThread = nil
+		end
+		hideThread = task_spawn(function(): ()
+			task_wait(0.1)
+			container.Visible = false
+		end)
+	end
+
+	local function show(): ()
+		if hideThread then
+			task_cancel(hideThread)
+			hideThread = nil
+		end
+		showThread = task_spawn(function(): ()
+			task_wait(0.5)
+			if window:IsDestroyed() then return end
+			const scale: number = math.max(window._scale.Scale, 0.01)
+			const origin: Vector2 = window.MainFrame.AbsolutePosition
+			const parentPos: Vector2 = parent.AbsolutePosition
+			const parentSize: Vector2 = parent.AbsoluteSize
+			const x: number = (parentPos.X - origin.X) / scale
+			const y: number = (parentPos.Y + parentSize.Y - origin.Y) / scale + 3
+			container.Position = UDim2.fromOffset(x, y)
+			container.Visible = true
+		end)
+	end
+
+	track(window, parent.MouseEnter:Connect(show))
+	track(window, parent.MouseLeave:Connect(hide))
+	track(window, parent:GetPropertyChangedSignal("AbsolutePosition"):Connect(function(): ()
+		if container.Visible then
+			const scale: number = math.max(window._scale.Scale, 0.01)
+			const origin: Vector2 = window.MainFrame.AbsolutePosition
+			const parentPos: Vector2 = parent.AbsolutePosition
+			const parentSize: Vector2 = parent.AbsoluteSize
+			container.Position = UDim2.fromOffset((parentPos.X - origin.X) / scale, (parentPos.Y + parentSize.Y - origin.Y) / scale + 3)
+		end
+	end))
+end
+
 local function beginKeybindCapture(window: Window, target: KeybindCapture, button: TextButton): ()
 	if window._keybindCapture == target then
 		target:SetKeybind(target._keybind)
@@ -787,13 +851,9 @@ local function clampWindowPosition(window: Window, desired: UDim2, sizeOverride:
 	)
 end
 
-local function controlText(row: Frame, palette: Palette, titleText: string, description: string?, rightInset: number): TextLabel
+local function controlText(row: Frame, palette: Palette, titleText: string, hint: string?, rightInset: number): TextLabel
 	const title: TextLabel = textLabel(row, titleText, UDim2.new(1, -rightInset, 0, 20), 13, palette.Text, LAYER.Content + 1)
-	title.Position = UDim2.fromOffset(0, if description then 5 else 11)
-	if description and #description > 0 then
-		const detail: TextLabel = textLabel(row, description, UDim2.new(1, -rightInset, 0, 18), 11, palette.MutedText, LAYER.Content + 1)
-		detail.Position = UDim2.fromOffset(0, 24)
-	end
+	title.Position = UDim2.fromOffset(0, 11)
 	return title
 end
 
@@ -1731,14 +1791,13 @@ function PageClass:AddSection(options: SectionOptions | string): Section
 	assertCondition(typeof(options) == "string" or typeof(options) == "table", "section options must be a string or table")
 	const settings: SectionOptions = if typeof(options) == "string" then { Name = options } else options
 	assertCondition(typeof(settings.Name) == "string" and #settings.Name > 0, "section name must be non-empty")
-	assertCondition(settings.Description == nil or typeof(settings.Description) == "string", "section description must be a string")
 	const root: Frame = create("Frame", self.Instance, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = self._window._palette.Surface, BackgroundTransparency = 0.08, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Section })
 	corner(root, 10)
 	const rootStroke: UIStroke = stroke(root, self._window._palette)
 	setPaletteBinding(self._window, rootStroke, "Color", "Border")
 	padding(root, LAYOUT.SectionPadding, LAYOUT.SectionPadding, LAYOUT.SectionPadding, LAYOUT.SectionPadding)
 	const rootLayout: UIListLayout = list(root, LAYOUT.SectionContentGap)
-	const header: Frame = create("Frame", root, { BackgroundTransparency = 1, LayoutOrder = 0, Size = UDim2.new(1, 0, 0, if settings.Description then 44 else 27), ZIndex = LAYER.Section + 1 })
+	const header: Frame = create("Frame", root, { BackgroundTransparency = 1, LayoutOrder = 0, Size = UDim2.new(1, 0, 0, 27), ZIndex = LAYER.Section + 1 })
 	const title: TextLabel = textLabel(header, settings.Name, UDim2.new(1, -40, 0, 24), 15, self._window._palette.Text, LAYER.Section + 2)
 	title.FontFace = Font.fromEnum(Enum.Font.GothamBold)
 	const collapseButton: TextButton = create("TextButton", header, {
@@ -1756,10 +1815,6 @@ function PageClass:AddSection(options: SectionOptions | string): Section
 		ZIndex = LAYER.Section + 2,
 	})
 	corner(collapseButton, 7)
-	if settings.Description then
-		const description: TextLabel = textLabel(header, settings.Description, UDim2.new(1, -40, 0, 18), 11, self._window._palette.MutedText, LAYER.Section + 2)
-		description.Position = UDim2.fromOffset(0, 24)
-	end
 	const contentClip: Frame = create("Frame", root, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, ClipsDescendants = false, Interactable = true, LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Content })
 	const content: Frame = create("Frame", contentClip, { AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), ZIndex = LAYER.Content })
 	list(content, LAYOUT.ControlGap)
@@ -1941,16 +1996,12 @@ end
 
 function SectionClass:AddButton(options: ButtonOptions): TextButton
 	const window: Window = self._page._window
-	assertCondition(options.Description == nil or typeof(options.Description) == "string", "button description must be a string")
+	assertCondition(options.Hint == nil or typeof(options.Hint) == "string", "button hint must be a string")
 	assertCondition(options.Callback == nil or typeof(options.Callback) == "function", "button callback must be a function")
 	breakCards(self)
-	const button: TextButton = create("TextButton", self.Instance, { AutoButtonColor = false, BackgroundColor3 = window._palette.Control, BackgroundTransparency = 0, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, if options.Description then LAYOUT.ControlDescriptionHeight else LAYOUT.ControlHeight), Text = "", ZIndex = LAYER.Content + 1 })
+	const button: TextButton = create("TextButton", self.Instance, { AutoButtonColor = false, BackgroundColor3 = window._palette.Control, BackgroundTransparency = 0, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, LAYOUT.ControlHeight), Text = "", ZIndex = LAYER.Content + 1 })
 	corner(button, 8)
 	setPaletteBinding(window, button, "BackgroundColor3", "Control")
-	if options.Description and #options.Description > 0 then
-		const description: TextLabel = textLabel(button, options.Description, UDim2.new(1, -40, 0, 18), 11, window._palette.MutedText, LAYER.Content + 2)
-		description.Position = UDim2.fromOffset(LAYOUT.SectionPadding, 17)
-	end
 	const arrow: TextLabel = textLabel(button, "›", UDim2.fromOffset(20, 30), 22, window._palette.MutedText, LAYER.Content + 2)
 	arrow.AnchorPoint = Vector2.new(1, 0.5)
 	arrow.Position = UDim2.new(1, -LAYOUT.ControlRightInset, 0.5, 0)
@@ -1969,6 +2020,9 @@ function SectionClass:AddButton(options: ButtonOptions): TextButton
 		animate(window, arrow, FAST_TWEEN, { TextColor3 = window._palette.MutedText })
 	end))
 	track(window, button.Activated:Connect(function(): () invoke(options.Callback) end))
+	if options.Hint and #options.Hint > 0 then
+		tooltip(window, button, options.Hint)
+	end
 	return button
 end
 
@@ -2073,7 +2127,7 @@ end
 function SectionClass:AddToggle(options: ToggleOptions): Toggle
 	const window: Window = self._page._window
 	assertCondition(typeof(options.Text) == "string" and #options.Text > 0, "toggle text must be non-empty")
-	assertCondition(options.Description == nil or typeof(options.Description) == "string", "toggle description must be a string")
+	assertCondition(options.Hint == nil or typeof(options.Hint) == "string", "toggle hint must be a string")
 	assertCondition(options.Default == nil or typeof(options.Default) == "boolean", "toggle default must be a boolean")
 	assertCondition(options.Keybind == nil or typeof(options.Keybind) == "table", "toggle keybind must be a table")
 	assertCondition(
@@ -2089,10 +2143,10 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 		"toggle default keybind must be a valid Enum.KeyCode"
 	)
 	assertCondition(options.Callback == nil or typeof(options.Callback) == "function", "toggle callback must be a function")
-	const container: Frame = row(self, if options.Description then LAYOUT.ControlDescriptionHeight else LAYOUT.ControlHeight)
+	const container: Frame = row(self, LAYOUT.ControlHeight)
 	const keybindEnabled: boolean = options.Keybind ~= nil and options.Keybind.Enabled ~= false
 	const defaultKeybind: Enum.KeyCode? = if keybindEnabled and options.Keybind then options.Keybind.Default else nil
-	controlText(container, window._palette, options.Text, options.Description, if keybindEnabled then LAYOUT.ToggleKeybindLabelInset else 58)
+	controlText(container, window._palette, options.Text, options.Hint, if keybindEnabled then LAYOUT.ToggleKeybindLabelInset else 58)
 	const trackButton: TextButton = create("TextButton", container, { AnchorPoint = Vector2.new(1, 0.5), AutoButtonColor = false, BackgroundColor3 = window._palette.Border, BorderSizePixel = 0, Position = UDim2.new(1, -LAYOUT.ControlRightInset, 0.5, 0), Size = UDim2.fromOffset(LAYOUT.ToggleWidth, LAYOUT.ToggleHeight), Text = "", ZIndex = LAYER.Content + 2 })
 	corner(trackButton, UDim.new(1, 0))
 	const knob: Frame = create("Frame", trackButton, { BackgroundColor3 = window._palette.MutedText, BorderSizePixel = 0, Position = UDim2.fromOffset(3, 3), Size = UDim2.fromOffset(16, 16), ZIndex = LAYER.Content + 3 })
@@ -2160,6 +2214,9 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 	table.insert(window._toggles, toggle)
 	toggle:SetValue(options.Default == true, false)
 	track(window, trackButton.Activated:Connect(function(): () toggle:SetValue(not toggle._value, true) end))
+	if options.Hint and #options.Hint > 0 then
+		tooltip(window, container, options.Hint)
+	end
 	return toggle
 end
 
@@ -2232,6 +2289,7 @@ function SectionClass:AddSlider(options: SliderOptions): Slider
 	assertCondition(options.Step == nil or isFiniteNumber(options.Step) and options.Step > 0, "slider step must be a positive finite number")
 	assertCondition(options.Default == nil or isFiniteNumber(options.Default), "slider default must be a finite number")
 	assertCondition(options.Suffix == nil or typeof(options.Suffix) == "string", "slider suffix must be a string")
+	assertCondition(options.Hint == nil or typeof(options.Hint) == "string", "slider hint must be a string")
 	assertCondition(options.Callback == nil or typeof(options.Callback) == "function", "slider callback must be a function")
 	const window: Window = self._page._window
 	const container: Frame = row(self, LAYOUT.SliderHeight)
@@ -2271,6 +2329,9 @@ function SectionClass:AddSlider(options: SliderOptions): Slider
 		end
 	end))
 	slider:SetValue(options.Default or options.Minimum, false)
+	if options.Hint and #options.Hint > 0 then
+		tooltip(window, container, options.Hint)
+	end
 	return slider
 end
 
@@ -2302,7 +2363,7 @@ end
 function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	assertCondition(typeof(options.Options) == "table" and #options.Options > 0, "dropdown must have at least one option")
 	assertCondition(typeof(options.Text) == "string" and #options.Text > 0, "dropdown text must be non-empty")
-	assertCondition(options.Description == nil or typeof(options.Description) == "string", "dropdown description must be a string")
+	assertCondition(options.Hint == nil or typeof(options.Hint) == "string", "dropdown hint must be a string")
 	assertCondition(options.OpenDirection == nil or options.OpenDirection == "Auto" or options.OpenDirection == "Up" or options.OpenDirection == "Down", "dropdown open direction must be Auto, Up, or Down")
 	assertCondition(options.Callback == nil or typeof(options.Callback) == "function", "dropdown callback must be a function")
 	const seen: {[string]: boolean} = {}
@@ -2313,16 +2374,11 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	const defaultValue: string = options.Default or options.Options[1]
 	assertCondition(typeof(defaultValue) == "string" and seen[defaultValue] == true, "default dropdown value is not an option")
 	const window: Window = self._page._window
-	const container: Frame = row(self, if options.Description then LAYOUT.ControlDescriptionHeight else LAYOUT.ControlHeight)
+	const container: Frame = row(self, LAYOUT.ControlHeight)
 	const fieldWidth: number = dropdownFieldWidth(window, options.Options)
 	const labelInset: number = fieldWidth + LAYOUT.ControlRightInset + LAYOUT.DropdownLabelGap
 	const label: TextLabel = textLabel(container, options.Text, UDim2.new(1, -labelInset, 0, 20), 13, window._palette.Text, LAYER.Content + 3)
-	label.Position = UDim2.fromOffset(0, if options.Description then 5 else 11)
-	local description: TextLabel? = nil
-	if options.Description and #options.Description > 0 then
-		description = textLabel(container, options.Description, UDim2.new(1, -labelInset, 0, 18), 11, window._palette.MutedText, LAYER.Content + 3)
-		description.Position = UDim2.fromOffset(0, 24)
-	end
+	label.Position = UDim2.fromOffset(0, 11)
 	const button: TextButton = create("TextButton", container, { AnchorPoint = Vector2.new(1, 0.5), AutoButtonColor = false, BackgroundColor3 = window._palette.Control, BorderSizePixel = 0, FontFace = Font.fromEnum(Enum.Font.Gotham), Position = UDim2.new(1, -LAYOUT.ControlRightInset, 0.5, 0), Size = UDim2.fromOffset(fieldWidth, LAYOUT.ControlFieldHeight), Text = "", TextColor3 = window._palette.Text, TextSize = LAYOUT.DropdownOptionTextSize, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = LAYER.Content + 2 })
 	corner(button, 6)
 	setPaletteBinding(window, button, "BackgroundColor3", "Control")
@@ -2341,9 +2397,6 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 		const updatedWidth: number = dropdownFieldWidth(window, options.Options)
 		button.Size = UDim2.fromOffset(updatedWidth, LAYOUT.ControlFieldHeight)
 		label.Size = UDim2.new(1, -updatedWidth - LAYOUT.ControlRightInset - LAYOUT.DropdownLabelGap, 0, 20)
-		if description then
-			description.Size = UDim2.new(1, -updatedWidth - LAYOUT.ControlRightInset - LAYOUT.DropdownLabelGap, 0, 18)
-		end
 		positionDropdown(dropdown)
 	end
 	for _, option: string in options.Options do
@@ -2386,6 +2439,9 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	track(window, self._page.Instance:GetPropertyChangedSignal("CanvasPosition"):Connect(function(): () positionDropdown(dropdown) end))
 	dropdown._resize()
 	dropdown:SetValue(defaultValue, false)
+	if options.Hint and #options.Hint > 0 then
+		tooltip(window, container, options.Hint)
+	end
 	return dropdown
 end
 
@@ -2457,11 +2513,11 @@ end
 function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 	const window: Window = self._page._window
 	assertCondition(typeof(options.Text) == "string" and #options.Text > 0, "color picker text must be non-empty")
-	assertCondition(options.Description == nil or typeof(options.Description) == "string", "color picker description must be a string")
+	assertCondition(options.Hint == nil or typeof(options.Hint) == "string", "color picker hint must be a string")
 	assertCondition(typeof(options.Default) == "Color3", "color picker default must be a Color3")
 	assertCondition(options.Callback == nil or typeof(options.Callback) == "function", "color picker callback must be a function")
-	const container: Frame = row(self, if options.Description then LAYOUT.ControlDescriptionHeight else LAYOUT.ControlHeight)
-	controlText(container, window._palette, options.Text, options.Description, LAYOUT.ColorPickerButtonWidth + LAYOUT.ControlRightInset + LAYOUT.DropdownLabelGap)
+	const container: Frame = row(self, LAYOUT.ControlHeight)
+	controlText(container, window._palette, options.Text, options.Hint, LAYOUT.ColorPickerButtonWidth + LAYOUT.ControlRightInset + LAYOUT.DropdownLabelGap)
 	const button: TextButton = create("TextButton", container, {
 		AnchorPoint = Vector2.new(1, 0.5),
 		AutoButtonColor = false,
@@ -2773,6 +2829,9 @@ function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 	track(window, button:GetPropertyChangedSignal("AbsoluteSize"):Connect(function(): () positionColorPicker(picker) end))
 	track(window, self._page.Instance:GetPropertyChangedSignal("CanvasPosition"):Connect(function(): () positionColorPicker(picker) end))
 	picker:SetValue(options.Default, false)
+	if options.Hint and #options.Hint > 0 then
+		tooltip(window, container, options.Hint)
+	end
 	return picker
 end
 
@@ -2829,7 +2888,7 @@ end
 
 function SectionClass:AddTextBox(options: TextBoxOptions): TextBoxControl
 	const window: Window = self._page._window
-	assertCondition(options.Description == nil or typeof(options.Description) == "string", "text box description must be a string")
+	assertCondition(options.Hint == nil or typeof(options.Hint) == "string", "text box hint must be a string")
 	assertCondition(options.Default == nil or typeof(options.Default) == "string", "text box default must be a string")
 	assertCondition(options.Placeholder == nil or typeof(options.Placeholder) == "string", "text box placeholder must be a string")
 	assertCondition(options.ClearOnFocus == nil or typeof(options.ClearOnFocus) == "boolean", "ClearOnFocus must be a boolean")
@@ -2842,11 +2901,7 @@ function SectionClass:AddTextBox(options: TextBoxOptions): TextBoxControl
 		end)
 		assertCondition(keySuccess and defaultKeyCode ~= nil and defaultKeyCode ~= Enum.KeyCode.Unknown, "text box default must be a valid key name")
 	end
-	const container: Frame = row(self, if options.Description then LAYOUT.ControlDescriptionHeight else LAYOUT.ControlHeight)
-	if options.Description and #options.Description > 0 then
-		const description: TextLabel = textLabel(container, options.Description, UDim2.new(1, -198, 0, 18), 11, window._palette.MutedText, LAYER.Content + 1)
-		description.Position = UDim2.fromOffset(0, 24)
-	end
+	const container: Frame = row(self, LAYOUT.ControlHeight)
 	const input: TextBox = create("TextBox", container, { AnchorPoint = Vector2.new(1, 0.5), BackgroundColor3 = window._palette.Control, BorderSizePixel = 0, ClearTextOnFocus = options.ClearOnFocus == true, FontFace = Font.fromEnum(Enum.Font.Gotham), PlaceholderColor3 = window._palette.MutedText, PlaceholderText = options.Placeholder or "Enter text", Position = UDim2.new(1, -LAYOUT.ControlRightInset, 0.5, 0), Size = UDim2.fromOffset(LAYOUT.ControlFieldWidth, LAYOUT.ControlFieldHeight), Text = options.Default or "", TextColor3 = window._palette.Text, TextSize = 13, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = LAYER.Content + 2 })
 	corner(input, 7)
 	setPaletteBinding(window, input, "BackgroundColor3", "Control")
@@ -2892,6 +2947,9 @@ function SectionClass:AddTextBox(options: TextBoxOptions): TextBoxControl
 			animate(window, input, FAST_TWEEN, { BackgroundColor3 = window._palette.Control })
 			invoke(textBox._callback, input.Text, enterPressed)
 		end))
+	end
+	if options.Hint and #options.Hint > 0 then
+		tooltip(window, container, options.Hint)
 	end
 	return textBox
 end
