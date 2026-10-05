@@ -748,50 +748,35 @@ local function tooltip(window: Window, parent: Instance, text: string): ()
 	label.AutomaticSize = Enum.AutomaticSize.X
 	label.TextWrapped = true
 
-	local showThread: thread? = nil
-	local hideThread: thread? = nil
+	local showDelay: thread? = nil
 
-	local function hide(): ()
-		if showThread then
-			task_cancel(showThread)
-			showThread = nil
-		end
-		hideThread = task_spawn(function(): ()
-			task_wait(0.1)
+	local function updatePosition(): ()
+		const scale: number = math.max(window._scale.Scale, 0.01)
+		const origin: Vector2 = window.MainFrame.AbsolutePosition
+		const parentPos: Vector2 = parent.AbsolutePosition
+		const parentSize: Vector2 = parent.AbsoluteSize
+		container.Position = UDim2.fromOffset((parentPos.X - origin.X) / scale, (parentPos.Y + parentSize.Y - origin.Y) / scale + 3)
+	end
+
+	local function onEnter(): ()
+		if showDelay then return end
+		showDelay = task.wait(0.5)
+		showDelay = nil
+		if window:IsDestroyed() then return end
+		updatePosition()
+		container.Visible = true
+	end
+
+	local function onLeave(): ()
+		if showDelay then
+			task.cancel(showDelay)
+			showDelay = nil
+		else
 			container.Visible = false
-		end)
+		end
 	end
 
-	local function show(): ()
-		if hideThread then
-			task_cancel(hideThread)
-			hideThread = nil
-		end
-		showThread = task_spawn(function(): ()
-			task_wait(0.5)
-			if window:IsDestroyed() then return end
-			const scale: number = math.max(window._scale.Scale, 0.01)
-			const origin: Vector2 = window.MainFrame.AbsolutePosition
-			const parentPos: Vector2 = parent.AbsolutePosition
-			const parentSize: Vector2 = parent.AbsoluteSize
-			const x: number = (parentPos.X - origin.X) / scale
-			const y: number = (parentPos.Y + parentSize.Y - origin.Y) / scale + 3
-			container.Position = UDim2.fromOffset(x, y)
-			container.Visible = true
-		end)
-	end
-
-	track(window, parent.MouseEnter:Connect(show))
-	track(window, parent.MouseLeave:Connect(hide))
-	track(window, parent:GetPropertyChangedSignal("AbsolutePosition"):Connect(function(): ()
-		if container.Visible then
-			const scale: number = math.max(window._scale.Scale, 0.01)
-			const origin: Vector2 = window.MainFrame.AbsolutePosition
-			const parentPos: Vector2 = parent.AbsolutePosition
-			const parentSize: Vector2 = parent.AbsoluteSize
-			container.Position = UDim2.fromOffset((parentPos.X - origin.X) / scale, (parentPos.Y + parentSize.Y - origin.Y) / scale + 3)
-		end
-	end))
+	return {Enter = onEnter, Leave = onLeave}
 end
 
 local function beginKeybindCapture(window: Window, target: KeybindCapture, button: TextButton): ()
@@ -854,11 +839,7 @@ end
 
 local function controlText(row: Frame, palette: Palette, titleText: string, hint: string?, rightInset: number): TextLabel
 	const title: TextLabel = textLabel(row, titleText, UDim2.new(1, -rightInset, 0, 20), 13, palette.Text, LAYER.Content + 1)
-	title.Position = UDim2.fromOffset(0, if hint then 5 else 11)
-	if hint and #hint > 0 then
-		const detail: TextLabel = textLabel(row, hint, UDim2.new(1, -rightInset, 0, 18), 11, palette.MutedText, LAYER.Content + 1)
-		detail.Position = UDim2.fromOffset(0, 24)
-	end
+	title.Position = UDim2.fromOffset(0, 11)
 	return title
 end
 
@@ -2026,7 +2007,9 @@ function SectionClass:AddButton(options: ButtonOptions): TextButton
 	end))
 	track(window, button.Activated:Connect(function(): () invoke(options.Callback) end))
 	if options.Hint and #options.Hint > 0 then
-		tooltip(window, button, options.Hint)
+		const tt = tooltip(window, button, options.Hint)
+		track(window, button.MouseEnter:Connect(tt.Enter))
+		track(window, button.MouseLeave:Connect(tt.Leave))
 	end
 	return button
 end
@@ -2148,7 +2131,7 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 		"toggle default keybind must be a valid Enum.KeyCode"
 	)
 	assertCondition(options.Callback == nil or typeof(options.Callback) == "function", "toggle callback must be a function")
-	const container: Frame = row(self, if options.Hint then LAYOUT.ControlDescriptionHeight else LAYOUT.ControlHeight)
+	const container: Frame = row(self, LAYOUT.ControlHeight)
 	const keybindEnabled: boolean = options.Keybind ~= nil and options.Keybind.Enabled ~= false
 	const defaultKeybind: Enum.KeyCode? = if keybindEnabled and options.Keybind then options.Keybind.Default else nil
 	controlText(container, window._palette, options.Text, options.Hint, if keybindEnabled then LAYOUT.ToggleKeybindLabelInset else 58)
@@ -2220,7 +2203,9 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 	toggle:SetValue(options.Default == true, false)
 	track(window, trackButton.Activated:Connect(function(): () toggle:SetValue(not toggle._value, true) end))
 	if options.Hint and #options.Hint > 0 then
-		tooltip(window, container, options.Hint)
+		const tt = tooltip(window, container, options.Hint)
+		track(window, trackButton.MouseEnter:Connect(tt.Enter))
+		track(window, trackButton.MouseLeave:Connect(tt.Leave))
 	end
 	return toggle
 end
@@ -2335,7 +2320,9 @@ function SectionClass:AddSlider(options: SliderOptions): Slider
 	end))
 	slider:SetValue(options.Default or options.Minimum, false)
 	if options.Hint and #options.Hint > 0 then
-		tooltip(window, container, options.Hint)
+		const tt = tooltip(window, container, options.Hint)
+		track(window, dragArea.MouseEnter:Connect(tt.Enter))
+		track(window, dragArea.MouseLeave:Connect(tt.Leave))
 	end
 	return slider
 end
@@ -2445,7 +2432,9 @@ function SectionClass:AddDropdown(options: DropdownOptions): Dropdown
 	dropdown._resize()
 	dropdown:SetValue(defaultValue, false)
 	if options.Hint and #options.Hint > 0 then
-		tooltip(window, container, options.Hint)
+		const tt = tooltip(window, container, options.Hint)
+		track(window, button.MouseEnter:Connect(tt.Enter))
+		track(window, button.MouseLeave:Connect(tt.Leave))
 	end
 	return dropdown
 end
@@ -2835,7 +2824,9 @@ function SectionClass:AddColorPicker(options: ColorPickerOptions): ColorPicker
 	track(window, self._page.Instance:GetPropertyChangedSignal("CanvasPosition"):Connect(function(): () positionColorPicker(picker) end))
 	picker:SetValue(options.Default, false)
 	if options.Hint and #options.Hint > 0 then
-		tooltip(window, container, options.Hint)
+		const tt = tooltip(window, container, options.Hint)
+		track(window, button.MouseEnter:Connect(tt.Enter))
+		track(window, button.MouseLeave:Connect(tt.Leave))
 	end
 	return picker
 end
