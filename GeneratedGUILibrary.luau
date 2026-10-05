@@ -255,6 +255,7 @@ const LAYOUT = table.freeze({
 	SectionContentGap = 10,
 	ControlGap = 6,
 	ControlHeight = 42,
+	ControlDescriptionHeight = 52,
 	ControlRightInset = 8,
 	ControlFieldWidth = 184,
 	ControlFieldHeight = 30,
@@ -853,7 +854,11 @@ end
 
 local function controlText(row: Frame, palette: Palette, titleText: string, hint: string?, rightInset: number): TextLabel
 	const title: TextLabel = textLabel(row, titleText, UDim2.new(1, -rightInset, 0, 20), 13, palette.Text, LAYER.Content + 1)
-	title.Position = UDim2.fromOffset(0, 11)
+	title.Position = UDim2.fromOffset(0, if hint then 5 else 11)
+	if hint and #hint > 0 then
+		const detail: TextLabel = textLabel(row, hint, UDim2.new(1, -rightInset, 0, 18), 11, palette.MutedText, LAYER.Content + 1)
+		detail.Position = UDim2.fromOffset(0, 24)
+	end
 	return title
 end
 
@@ -2143,7 +2148,7 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 		"toggle default keybind must be a valid Enum.KeyCode"
 	)
 	assertCondition(options.Callback == nil or typeof(options.Callback) == "function", "toggle callback must be a function")
-	const container: Frame = row(self, LAYOUT.ControlHeight)
+	const container: Frame = row(self, if options.Hint then LAYOUT.ControlDescriptionHeight else LAYOUT.ControlHeight)
 	const keybindEnabled: boolean = options.Keybind ~= nil and options.Keybind.Enabled ~= false
 	const defaultKeybind: Enum.KeyCode? = if keybindEnabled and options.Keybind then options.Keybind.Default else nil
 	controlText(container, window._palette, options.Text, options.Hint, if keybindEnabled then LAYOUT.ToggleKeybindLabelInset else 58)
