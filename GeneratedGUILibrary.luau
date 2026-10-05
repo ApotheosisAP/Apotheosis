@@ -38,7 +38,7 @@ export type PageOptions = {
 	ButtonPosition: UDim2?,
 }
 export type SectionOptions = {Name: string}
-export type LabelOptions = {Text: string, Color: Color3?, Size: number?}
+export type LabelOptions = {Text: string, Hint: string?, Color: Color3?, Size: number?}
 export type Label = {
 	GetColor: (self: Label) -> Color3,
 	GetSize: (self: Label) -> number,
@@ -731,8 +731,8 @@ local function keybindText(keyCode: Enum.KeyCode?): string
 	return names[keyCode.Name] or keyCode.Name
 end
 
-local function tooltip(window: Window, parent: Instance, text: string): ()
-	const container: Frame = create("Frame", window._overlay, {
+local function tooltip(window: Window, target: Instance, text: string): ()
+	local container: Frame = create("Frame", window._overlay, {
 		AutomaticSize = Enum.AutomaticSize.X,
 		BackgroundColor3 = window._palette.Background,
 		BorderSizePixel = 0,
@@ -748,35 +748,36 @@ local function tooltip(window: Window, parent: Instance, text: string): ()
 	label.AutomaticSize = Enum.AutomaticSize.X
 	label.TextWrapped = true
 
-	local showDelay: thread? = nil
+	local delayThread: thread? = nil
 
 	local function updatePosition(): ()
 		const scale: number = math.max(window._scale.Scale, 0.01)
 		const origin: Vector2 = window.MainFrame.AbsolutePosition
-		const parentPos: Vector2 = parent.AbsolutePosition
-		const parentSize: Vector2 = parent.AbsoluteSize
-		container.Position = UDim2.fromOffset((parentPos.X - origin.X) / scale, (parentPos.Y + parentSize.Y - origin.Y) / scale + 3)
+		const mousePos: Vector2 = UserInputService:GetMouseLocation()
+		container.Position = UDim2.fromOffset((mousePos.X - origin.X) / scale + 16, (mousePos.Y - origin.Y) / scale + 12)
 	end
 
-	local function onEnter(): ()
-		if showDelay then return end
-		showDelay = task.wait(0.5)
-		showDelay = nil
-		if window:IsDestroyed() then return end
-		updatePosition()
-		container.Visible = true
-	end
+	track(window, target.MouseEnter:Connect(function(): ()
+		if delayThread then return end
+		delayThread = task.delay(0.5, function(): ()
+			delayThread = nil
+			if window:IsDestroyed() then return end
+			updatePosition()
+			container.Visible = true
+		end)
+	end))
 
-	local function onLeave(): ()
-		if showDelay then
-			task.cancel(showDelay)
-			showDelay = nil
-		else
-			container.Visible = false
+	track(window, target.MouseLeave:Connect(function(): ()
+		if delayThread then
+			task.cancel(delayThread)
+			delayThread = nil
 		end
-	end
+		container.Visible = false
+	end))
 
-	return {Enter = onEnter, Leave = onLeave}
+	track(window, target.MouseMoved:Connect(function(): ()
+		if container.Visible then updatePosition() end
+	end))
 end
 
 local function beginKeybindCapture(window: Window, target: KeybindCapture, button: TextButton): ()
@@ -1858,12 +1859,17 @@ function SectionClass:AddLabel(options: LabelOptions | string): Label
 	assertCondition(typeof(options) == "string" or typeof(options) == "table", "label options must be a string or table")
 	const settings: LabelOptions = if typeof(options) == "string" then { Text = options } else options
 	assertCondition(typeof(settings.Text) == "string", "label text must be a string")
+	assertCondition(settings.Hint == nil or typeof(settings.Hint) == "string", "label hint must be a string")
 	assertCondition(settings.Size == nil or isFiniteNumber(settings.Size) and settings.Size > 0, "label size must be a positive finite number")
 	assertCondition(settings.Color == nil or typeof(settings.Color) == "Color3", "label color must be a Color3")
-	const label: TextLabel = textLabel(self.Instance, settings.Text, UDim2.new(1, 0, 0, LAYOUT.LabelHeight), settings.Size or 13, settings.Color or self._page._window._palette.Text, LAYER.Content + 1)
-	label.AutomaticSize = Enum.AutomaticSize.Y
-	label.TextTruncate = Enum.TextTruncate.None
-	label.TextWrapped = true
+	const window: Window = self._page._window
+	const container: Frame = row(self, if settings.Hint then 44 else LAYOUT.LabelHeight)
+	const label: TextLabel = textLabel(container, settings.Text, UDim2.new(1, 0, 0, 18), settings.Size or 13, settings.Color or window._palette.Text, LAYER.Content + 1)
+	if settings.Hint and #settings.Hint > 0 then
+		const hintLabel: TextLabel = textLabel(container, settings.Hint, UDim2.new(1, 0, 0, 18), 11, window._palette.MutedText, LAYER.Content + 1)
+		hintLabel.Position = UDim2.fromOffset(0, 22)
+		hintLabel.TextWrapped = true
+	end
 	return setmetatable({ Instance = label }, LabelClass) :: any
 end
 
@@ -2007,9 +2013,7 @@ function SectionClass:AddButton(options: ButtonOptions): TextButton
 	end))
 	track(window, button.Activated:Connect(function(): () invoke(options.Callback) end))
 	if options.Hint and #options.Hint > 0 then
-		const tt = tooltip(window, button, options.Hint)
-		track(window, button.MouseEnter:Connect(tt.Enter))
-		track(window, button.MouseLeave:Connect(tt.Leave))
+		tooltip(window, button, options.Hint)
 	end
 	return button
 end
@@ -2203,9 +2207,10 @@ function SectionClass:AddToggle(options: ToggleOptions): Toggle
 	toggle:SetValue(options.Default == true, false)
 	track(window, trackButton.Activated:Connect(function(): () toggle:SetValue(not toggle._value, true) end))
 	if options.Hint and #options.Hint > 0 then
-		const tt = tooltip(window, container, options.Hint)
+		const tt = tooltip(window, options.Hint)
 		track(window, trackButton.MouseEnter:Connect(tt.Enter))
 		track(window, trackButton.MouseLeave:Connect(tt.Leave))
+		track(window, trackButton.MouseMoved:Connect(tt.Move))
 	end
 	return toggle
 end
